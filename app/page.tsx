@@ -142,6 +142,7 @@ export default function Page() {
   const [showRules, setShowRules] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isJoining, setIsJoining] = useState(false)
+  const [isMobileSprinting, setIsMobileSprinting] = useState(false)
   const [, redraw] = useState(0)
 
   const update = useCallback(() => redraw(n => n + 1), [])
@@ -1437,26 +1438,70 @@ export default function Page() {
               </div>
             </div>
 
-            {/* Mobile Touch Action Controls */}
-            <div className="mobile-actions">
-              <button className="mobile-btn" onPointerDown={touch(() => move(-1))} onPointerUp={touch(stopMove)}>
-                ← BACK
-              </button>
-              <button className="mobile-btn" onPointerDown={touch(() => move(1))} onPointerUp={touch(stopMove)}>
-                FORWARD →
-              </button>
-              <button className="mobile-btn" onPointerDown={touch(() => move(1, true))} onPointerUp={touch(stopMove)}>
-                SPRINT
-              </button>
-              <button className="mobile-btn" onPointerDown={touch(jump)}>
-                JUMP
-              </button>
-              <button className="mobile-btn" onPointerDown={touch(hide)}>
-                HIDE (BOX/BUSH)
-              </button>
-              <button className="mobile-btn mobile-btn-yellow" onPointerDown={touch(shootGun)}>
-                🔫 FIRE GUN
-              </button>
+            {/* Mobile & Tablet Ergonomic Touch Gamepad Controls (Left Movement, Right Actions) */}
+            <div className="mobile-gamepad-container">
+              <div className="gamepad-row">
+                {/* Left Side: Movement D-Pad (Left / Right / Sprint) */}
+                <div className="dpad-container">
+                  <button
+                    className="dpad-btn"
+                    onPointerDown={touch(() => move(-1, isMobileSprinting))}
+                    onPointerUp={touch(stopMove)}
+                    onPointerLeave={touch(stopMove)}
+                    onPointerCancel={touch(stopMove)}
+                    aria-label="Move and face backward"
+                  >
+                    ◀
+                  </button>
+                  <button
+                    className="dpad-btn"
+                    onPointerDown={touch(() => move(1, isMobileSprinting))}
+                    onPointerUp={touch(stopMove)}
+                    onPointerLeave={touch(stopMove)}
+                    onPointerCancel={touch(stopMove)}
+                    aria-label="Move and face forward"
+                  >
+                    ▶
+                  </button>
+                  <button
+                    className={`sprint-pill-btn ${isMobileSprinting ? 'active' : ''}`}
+                    onClick={() => setIsMobileSprinting(prev => !prev)}
+                    aria-label="Toggle Sprint"
+                  >
+                    ⚡ {isMobileSprinting ? 'SPRINT ON' : 'SPRINT'}
+                  </button>
+                </div>
+
+                {/* Right Side: Action Cluster (Hide, Jump, Fire) */}
+                <div className="action-cluster">
+                  <button
+                    className="action-btn-circle action-btn-hide"
+                    onPointerDown={touch(hide)}
+                    aria-label="Hide in Box/Bush"
+                  >
+                    <span style={{ fontSize: '14px' }}>📦</span>
+                    <span style={{ fontSize: '9px', fontWeight: 900 }}>HIDE</span>
+                  </button>
+
+                  <button
+                    className="action-btn-circle action-btn-jump"
+                    onPointerDown={touch(jump)}
+                    aria-label="Jump over hazards"
+                  >
+                    <span style={{ fontSize: '15px' }}>⬆</span>
+                    <span style={{ fontSize: '9px', fontWeight: 900 }}>JUMP</span>
+                  </button>
+
+                  <button
+                    className="action-btn-circle action-btn-fire"
+                    onPointerDown={touch(shootGun)}
+                    aria-label="Fire Gun"
+                  >
+                    <span style={{ fontSize: '18px' }}>🔫</span>
+                    <span style={{ fontSize: '11px', fontWeight: 900 }}>FIRE</span>
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
 

@@ -20,29 +20,30 @@
 
 * {
   box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
 }
 
-html {
-  background: var(--background);
-  color: var(--foreground);
-}
-
-body {
+html, body {
   margin: 0;
+  padding: 0;
   min-height: 100vh;
   background: var(--background);
   color: var(--foreground);
   font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   letter-spacing: -0.01em;
   -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
 }
 
 button, input {
   font-family: inherit;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 button {
   cursor: pointer;
+  touch-action: manipulation;
   transition: transform 0.08s ease, box-shadow 0.08s ease;
 }
 
@@ -61,12 +62,12 @@ button:active {
 
 /* Navbar */
 .topbar {
-  min-height: 74px;
+  min-height: 70px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
-  padding: 16px 5vw;
+  gap: 16px;
+  padding: 14px 4vw;
   background: #ffffff;
   border-bottom: 2.5px solid var(--border);
 }
@@ -74,26 +75,26 @@ button:active {
 .brand {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
 }
 
 .brand-mark {
   display: grid;
   place-items: center;
-  width: 40px;
-  height: 40px;
+  width: 38px;
+  height: 38px;
   color: #000000;
   background: var(--yellow);
   border: 2.5px solid var(--border);
   box-shadow: 3px 3px 0px var(--border);
   font-weight: 900;
-  font-size: 16px;
+  font-size: 15px;
   font-family: 'JetBrains Mono', monospace;
 }
 
 .brand strong {
   display: block;
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 900;
   letter-spacing: -0.03em;
   text-transform: uppercase;
@@ -103,7 +104,7 @@ button:active {
 .brand small {
   display: block;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 9px;
   font-family: 'JetBrains Mono', monospace;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -113,7 +114,7 @@ button:active {
 .topbar-actions {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
 }
 
 .network-badge {
@@ -138,7 +139,7 @@ button:active {
 }
 
 .neo-button {
-  padding: 10px 16px;
+  padding: 10px 14px;
   background: #ffffff;
   color: #000000;
   border: 2px solid var(--border);
@@ -166,14 +167,14 @@ button:active {
   background: var(--yellow-hover) !important;
 }
 
-/* ================= Hero / Entry Section (Matching Reference) ================= */
+/* ================= Hero / Entry Section ================= */
 .hero-section {
   flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 60px 4vw 40px;
+  padding: 40px 4vw 30px;
   text-align: center;
   max-width: 1050px;
   margin: 0 auto;
@@ -182,7 +183,7 @@ button:active {
 
 .badge-pill {
   display: inline-block;
-  padding: 6px 16px;
+  padding: 6px 14px;
   background: #ffffff;
   border: 2px solid var(--border);
   box-shadow: 3px 3px 0px var(--border);
@@ -191,12 +192,12 @@ button:active {
   font-weight: 800;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  margin-bottom: 28px;
+  margin-bottom: 24px;
 }
 
 .hero-title {
-  margin: 0 0 20px;
-  font-size: clamp(48px, 7.5vw, 92px);
+  margin: 0 0 16px;
+  font-size: clamp(38px, 7vw, 92px);
   font-weight: 900;
   line-height: 0.95;
   letter-spacing: -0.05em;
@@ -204,41 +205,39 @@ button:active {
   color: #000000;
 }
 
-/* Highlight badge matching "NEW." in reference image */
 .badge-highlight {
   display: inline-block;
   background: var(--yellow);
   color: #000000;
   border: 3px solid var(--border);
   box-shadow: 5px 5px 0px var(--border);
-  padding: 0 14px;
-  margin-left: 8px;
+  padding: 0 12px;
+  margin-left: 6px;
   transform: skew(-2deg);
 }
 
 .hero-subtitle {
   max-width: 620px;
   color: var(--muted);
-  font-size: clamp(14px, 1.8vw, 17px);
+  font-size: clamp(13px, 1.8vw, 16px);
   line-height: 1.6;
-  margin: 0 auto 36px;
+  margin: 0 auto 30px;
   font-weight: 500;
 }
 
-/* Entry Form */
 .entry-form-container {
   width: 100%;
-  max-width: 520px;
+  max-width: 480px;
   background: #ffffff;
   border: 3px solid var(--border);
   box-shadow: 6px 6px 0px var(--border);
-  padding: 28px;
-  margin-bottom: 48px;
+  padding: 24px;
+  margin-bottom: 36px;
   text-align: left;
 }
 
 .form-group {
-  margin-bottom: 18px;
+  margin-bottom: 16px;
 }
 
 .form-label {
@@ -254,7 +253,7 @@ button:active {
 
 .neo-input {
   width: 100%;
-  padding: 14px 16px;
+  padding: 13px 15px;
   background: #ffffff;
   border: 2px solid var(--border);
   box-shadow: 3px 3px 0px var(--border);
@@ -286,21 +285,20 @@ button:active {
   align-items: center;
   justify-content: center;
   gap: 12px;
-  margin-top: 10px;
+  margin-top: 8px;
 }
 
 .hero-cta-button:hover {
   background: var(--yellow-hover);
 }
 
-/* Reference Footer Badges Bar */
 .footer-bar {
   display: flex;
   align-items: center;
   justify-content: center;
   flex-wrap: wrap;
-  gap: 28px;
-  padding: 24px 4vw;
+  gap: 20px;
+  padding: 20px 4vw;
   border-top: 2.5px solid var(--border);
   background: #ffffff;
   font-family: 'JetBrains Mono', monospace;
@@ -321,10 +319,10 @@ button:active {
 /* ================= Lobby Layout ================= */
 .lobby-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(340px, 0.9fr);
-  gap: 40px;
-  max-width: 1200px;
-  margin: 40px auto;
+  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+  gap: 32px;
+  max-width: 1160px;
+  margin: 32px auto;
   padding: 0 4vw;
   width: 100%;
   align-items: start;
@@ -334,16 +332,16 @@ button:active {
   background: #ffffff;
   border: 3px solid var(--border);
   box-shadow: 6px 6px 0px var(--border);
-  padding: 28px;
+  padding: 24px;
 }
 
 .card-header-line {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding-bottom: 16px;
+  padding-bottom: 14px;
   border-bottom: 2px solid var(--border);
-  margin-bottom: 20px;
+  margin-bottom: 18px;
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
   font-weight: 800;
@@ -353,15 +351,15 @@ button:active {
 .roster-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin: 20px 0 26px;
+  gap: 10px;
+  margin: 16px 0 22px;
 }
 
 .roster-card {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 12px 14px;
+  gap: 12px;
+  padding: 10px 14px;
   background: #faf9f5;
   border: 2px solid var(--border);
   box-shadow: 3px 3px 0px var(--border);
@@ -370,12 +368,12 @@ button:active {
 .runner-avatar-box {
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   border: 2px solid #000000;
   box-shadow: 2px 2px 0px #000000;
   font-weight: 900;
-  font-size: 14px;
+  font-size: 13px;
   color: #000000;
 }
 
@@ -385,7 +383,7 @@ button:active {
 
 .runner-meta strong {
   display: block;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 800;
   color: #000000;
 }
@@ -410,60 +408,48 @@ button:active {
 /* ================= Race Game Layout ================= */
 .game-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
-  gap: 28px;
+  grid-template-columns: minmax(0, 1fr) 290px;
+  gap: 24px;
   max-width: 1380px;
-  margin: 20px auto;
-  padding: 0 4vw;
+  margin: 16px auto;
+  padding: 0 3vw;
   width: 100%;
-}
-
-.race-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-}
-
-.race-header h1 {
-  margin: 0;
-  font-size: 22px;
-  font-weight: 900;
-  letter-spacing: -0.02em;
 }
 
 .progress-badge {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
+  gap: 6px;
+  padding: 6px 12px;
   background: var(--yellow);
   border: 2px solid var(--border);
-  box-shadow: 3px 3px 0px var(--border);
+  box-shadow: 2px 2px 0px var(--border);
   font-family: 'JetBrains Mono', monospace;
   font-weight: 900;
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .canvas-frame {
   position: relative;
   border: 3px solid var(--border);
   box-shadow: 6px 6px 0px var(--border);
-  background: #0d1b2a;
+  background: #09101d;
+  width: 100%;
 }
 
 .canvas-frame canvas {
   display: block;
   width: 100%;
-  height: 400px;
-  image-rendering: pixelated;
+  height: 420px;
+  image-rendering: auto;
 }
 
+/* Desktop keyboard hints */
 .controls-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 16px 0;
+  gap: 10px;
+  padding: 14px 0;
   flex-wrap: wrap;
 }
 
@@ -489,7 +475,7 @@ button:active {
 
 .hide-bar-container {
   margin-left: auto;
-  width: 180px;
+  width: 160px;
 }
 
 .hide-bar-bg {
@@ -507,27 +493,123 @@ button:active {
   transition: width 0.1s linear;
 }
 
-.mobile-actions {
+/* ================= ERGONOMIC MOBILE & TABLET GAMEPAD CONTROLLER ================= */
+.mobile-gamepad-container {
+  display: none; /* Shown on touch / tablet / mobile */
+  width: 100%;
+  padding: 12px 0 16px;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.gamepad-row {
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+}
+
+/* Left Side: Movement D-Pad Controller */
+.dpad-container {
+  display: flex;
+  align-items: center;
   gap: 10px;
-  padding-top: 8px;
 }
 
-.mobile-btn {
-  flex: 1;
-  min-width: 90px;
-  padding: 12px 10px;
+.dpad-btn {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
   background: #ffffff;
-  border: 2px solid var(--border);
-  box-shadow: 3px 3px 0px var(--border);
+  color: #000000;
+  border: 3px solid #000000;
+  box-shadow: 4px 4px 0px #000000;
+  font-size: 20px;
   font-weight: 900;
-  font-size: 11px;
-  text-transform: uppercase;
+  display: grid;
+  place-items: center;
+  touch-action: manipulation;
 }
 
-.mobile-btn-yellow {
-  background: var(--yellow) !important;
+.dpad-btn:active, .dpad-btn.active {
+  background: #ffd600;
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0px #000000;
+}
+
+/* Center Sprint Toggle / Info */
+.dpad-utility {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+
+.sprint-pill-btn {
+  padding: 10px 14px;
+  background: #ffffff;
+  border: 2.5px solid #000000;
+  box-shadow: 3px 3px 0px #000000;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  border-radius: 20px;
+}
+
+.sprint-pill-btn.active {
+  background: #ffd600;
+}
+
+/* Right Side: Action Cluster (Fire, Jump, Hide) */
+.action-cluster {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.action-btn-circle {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 3px solid #000000;
+  box-shadow: 4px 4px 0px #000000;
+  font-weight: 900;
+  touch-action: manipulation;
+}
+
+.action-btn-fire {
+  width: 68px;
+  height: 68px;
+  background: #ffd600;
+  color: #000000;
+  font-size: 13px;
+  box-shadow: 5px 5px 0px #000000;
+}
+
+.action-btn-jump {
+  width: 58px;
+  height: 58px;
+  background: #ffffff;
+  color: #000000;
+  font-size: 12px;
+}
+
+.action-btn-hide {
+  width: 50px;
+  height: 50px;
+  background: #ffffff;
+  color: #000000;
+  font-size: 10px;
+}
+
+.action-btn-circle:active {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0px #000000;
 }
 
 /* Sidebar */
@@ -535,11 +617,11 @@ button:active {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
+  padding: 9px 12px;
   background: #faf9f5;
   border: 2px solid var(--border);
   box-shadow: 2px 2px 0px var(--border);
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .live-row-box.current-player {
@@ -554,45 +636,89 @@ button:active {
   z-index: 50;
   display: grid;
   place-items: center;
-  padding: 20px;
-  background: rgba(0, 0, 0, 0.6);
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.65);
   backdrop-filter: blur(2px);
 }
 
 .neo-modal-card {
-  width: min(680px, 100%);
+  width: min(640px, 100%);
   max-height: 90vh;
   overflow-y: auto;
   background: #ffffff;
   border: 3.5px solid var(--border);
   box-shadow: 8px 8px 0px var(--border);
-  padding: 32px;
+  padding: 26px;
 }
 
-@media (max-width: 768px) {
-  .lobby-layout, .game-layout {
+/* ================= RESPONSIVE MEDIA QUERIES (Mobile & Tablet) ================= */
+@media (max-width: 1024px) {
+  .game-layout {
     grid-template-columns: 1fr;
-    gap: 24px;
-    padding: 0 5vw;
-  }
-
-  .hero-title {
-    font-size: 44px;
+    gap: 16px;
+    padding: 0 2vw;
   }
 
   .canvas-frame canvas {
-    height: 280px;
+    height: clamp(260px, 46vh, 380px);
   }
 
-  .footer-bar {
-    gap: 14px;
+  .controls-row {
+    display: none; /* Hide keyboard pills on touch devices */
   }
 
+  .mobile-gamepad-container {
+    display: block; /* Show sleek mobile touch controls */
+  }
+}
+
+@media (max-width: 768px) {
   .topbar {
-    padding: 14px 4vw;
+    padding: 10px 3vw;
+    min-height: 60px;
+  }
+
+  .brand strong {
+    font-size: 15px;
+  }
+
+  .brand-mark {
+    width: 32px;
+    height: 32px;
+    font-size: 13px;
   }
 
   .network-badge {
     display: none;
+  }
+
+  .neo-button {
+    padding: 8px 10px;
+    font-size: 10px;
+  }
+
+  .lobby-layout {
+    grid-template-columns: 1fr;
+    gap: 20px;
+    padding: 0 3vw;
+    margin: 20px auto;
+  }
+
+  .hero-section {
+    padding: 24px 3vw 20px;
+  }
+
+  .hero-title {
+    font-size: 36px;
+  }
+
+  .entry-form-container {
+    padding: 18px;
+  }
+
+  .footer-bar {
+    gap: 12px;
+    padding: 14px 2vw;
+    font-size: 9px;
   }
 }
