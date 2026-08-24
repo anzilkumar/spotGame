@@ -381,20 +381,37 @@ export default function Page() {
     }
   }, [roomCode])
 
+  const isSprintingRef = useRef(false)
+
   // Jump (clear ground thorns, cacti, rocks, or airborne birds)
   const jump = useCallback(() => {
     const g = gameRef.current
     if (g.running && g.y === 0) g.vy = 650
   }, [])
 
-  // Move forward / backward with turning orientation
-  const move = useCallback((direction: number, sprint = false) => {
+  // Move forward / backward with turning orientation & sprint support
+  const move = useCallback((direction: number, forceSprint?: boolean) => {
     const g = gameRef.current
     if (g.running) {
-      g.vx = direction * (sprint ? 390 : 260)
+      const isSprint = forceSprint ?? isSprintingRef.current
+      g.vx = direction * (isSprint ? 440 : 260)
       if (direction > 0) g.facing = 1 // Facing forward (right)
       if (direction < 0) g.facing = -1 // Facing backward (left)
     }
+  }, [])
+
+  // Toggle Sprint (Spirit) Mode on/off
+  const toggleSprint = useCallback(() => {
+    setIsMobileSprinting(prev => {
+      const next = !prev
+      isSprintingRef.current = next
+      const g = gameRef.current
+      if (g.running && g.vx !== 0) {
+        const dir = g.vx > 0 ? 1 : -1
+        g.vx = dir * (next ? 440 : 260)
+      }
+      return next
+    })
   }, [])
 
   const stopMove = useCallback(() => {
@@ -1438,67 +1455,73 @@ export default function Page() {
               </div>
             </div>
 
-            {/* Mobile & Tablet Ergonomic Touch Gamepad Controls (Left Movement, Right Actions) */}
+            {/* Mobile & Tablet Ergonomic Touch Gamepad Controls */}
             <div className="mobile-gamepad-container">
               <div className="gamepad-row">
-                {/* Left Side: Movement D-Pad (Left / Right / Sprint) */}
+                {/* Left Side: Movement D-Pad (Left Arrow, Jump in between, Right Arrow) */}
                 <div className="dpad-container">
                   <button
                     className="dpad-btn"
-                    onPointerDown={touch(() => move(-1, isMobileSprinting))}
+                    onPointerDown={touch(() => move(-1))}
                     onPointerUp={touch(stopMove)}
                     onPointerLeave={touch(stopMove)}
                     onPointerCancel={touch(stopMove)}
-                    aria-label="Move and face backward"
+                    aria-label="Move and face left / backward"
                   >
                     ◀
                   </button>
-                  <button
-                    className="dpad-btn"
-                    onPointerDown={touch(() => move(1, isMobileSprinting))}
-                    onPointerUp={touch(stopMove)}
-                    onPointerLeave={touch(stopMove)}
-                    onPointerCancel={touch(stopMove)}
-                    aria-label="Move and face forward"
-                  >
-                    ▶
-                  </button>
-                  <button
-                    className={`sprint-pill-btn ${isMobileSprinting ? 'active' : ''}`}
-                    onClick={() => setIsMobileSprinting(prev => !prev)}
-                    aria-label="Toggle Sprint"
-                  >
-                    ⚡ {isMobileSprinting ? 'SPRINT ON' : 'SPRINT'}
-                  </button>
-                </div>
 
-                {/* Right Side: Action Cluster (Hide, Jump, Fire) */}
-                <div className="action-cluster">
+                  {/* Jump Arrow in between Left and Right! */}
                   <button
-                    className="action-btn-circle action-btn-hide"
-                    onPointerDown={touch(hide)}
-                    aria-label="Hide in Box/Bush"
-                  >
-                    <span style={{ fontSize: '14px' }}>📦</span>
-                    <span style={{ fontSize: '9px', fontWeight: 900 }}>HIDE</span>
-                  </button>
-
-                  <button
-                    className="action-btn-circle action-btn-jump"
+                    className="dpad-btn dpad-jump-btn"
                     onPointerDown={touch(jump)}
                     aria-label="Jump over hazards"
                   >
-                    <span style={{ fontSize: '15px' }}>⬆</span>
-                    <span style={{ fontSize: '9px', fontWeight: 900 }}>JUMP</span>
+                    <span style={{ fontSize: '18px', lineHeight: 1 }}>▲</span>
+                    <span style={{ fontSize: '8px', fontWeight: 900, marginTop: 1 }}>JUMP</span>
                   </button>
 
+                  <button
+                    className="dpad-btn"
+                    onPointerDown={touch(() => move(1))}
+                    onPointerUp={touch(stopMove)}
+                    onPointerLeave={touch(stopMove)}
+                    onPointerCancel={touch(stopMove)}
+                    aria-label="Move and face right / forward"
+                  >
+                    ▶
+                  </button>
+                </div>
+
+                {/* Right Side: Action Cluster (Fire, Hide, Sprint ON/OFF) */}
+                <div className="action-cluster">
                   <button
                     className="action-btn-circle action-btn-fire"
                     onPointerDown={touch(shootGun)}
                     aria-label="Fire Gun"
                   >
-                    <span style={{ fontSize: '18px' }}>🔫</span>
-                    <span style={{ fontSize: '11px', fontWeight: 900 }}>FIRE</span>
+                    <span style={{ fontSize: '20px' }}>🔫</span>
+                    <span style={{ fontSize: '10px', fontWeight: 900 }}>FIRE</span>
+                  </button>
+
+                  <button
+                    className="action-btn-circle action-btn-hide"
+                    onPointerDown={touch(hide)}
+                    aria-label="Hide in Box or Bush"
+                  >
+                    <span style={{ fontSize: '15px' }}>📦</span>
+                    <span style={{ fontSize: '9px', fontWeight: 900 }}>HIDE</span>
+                  </button>
+
+                  <button
+                    className={`action-btn-circle action-btn-sprint ${isMobileSprinting ? 'active' : ''}`}
+                    onClick={toggleSprint}
+                    aria-label="Toggle Sprint Mode"
+                  >
+                    <span style={{ fontSize: '15px' }}>⚡</span>
+                    <span style={{ fontSize: '8px', fontWeight: 900, lineHeight: 1 }}>
+                      {isMobileSprinting ? 'SPRINT: ON' : 'SPRINT: OFF'}
+                    </span>
                   </button>
                 </div>
               </div>
