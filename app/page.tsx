@@ -137,7 +137,7 @@ export default function Page() {
   const [roomCode, setRoomCode] = useState('PX7K2')
   const [playerName, setPlayerName] = useState('')
   const [myId, setMyId] = useState('')
-  const [phase, setPhase] = useState<'entry' | 'lobby' | 'race' | 'results'>('entry')
+  const [phase, setPhase] = useState<'entry' | 'lobby' | 'race' | 'eliminated' | 'results'>('entry')
   const [players, setPlayers] = useState<Player[]>([])
   const [showRules, setShowRules] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -242,18 +242,31 @@ export default function Page() {
       if (g.running && g.invincible <= 0 && !g.hidden) {
         const dx = Math.abs(g.x - data.x)
         const dy = Math.abs(g.y - data.y)
-        if (dx < 75 && dy < 50) {
+        if (dx < 80 && dy < 55) {
           g.lives = Math.max(0, g.lives - 1)
-          g.x = Math.max(0, g.x - 40)
+          g.x = Math.max(0, g.x - 45)
           g.invincible = 1.2
-          g.flash = 0.3
-          g.message = `Ambushed! Lost 1 life (-40m)`
-          socket.emit('player-update', {
-            x: g.x,
-            y: g.y,
-            lives: g.lives,
-            progress: Math.min(100, Math.round(g.x / 82)),
-          })
+          g.flash = 0.35
+          g.message = `Ambushed! Lost 1 life (-45m)`
+
+          if (g.lives <= 0) {
+            g.running = false
+            setPhase('eliminated')
+            socket.emit('player-update', {
+              x: g.x,
+              y: g.y,
+              lives: 0,
+              status: 'OUT',
+              progress: Math.min(100, Math.round(g.x / 82)),
+            })
+          } else {
+            socket.emit('player-update', {
+              x: g.x,
+              y: g.y,
+              lives: g.lives,
+              progress: Math.min(100, Math.round(g.x / 82)),
+            })
+          }
         }
       }
     })
@@ -352,6 +365,11 @@ export default function Page() {
     gameRef.current = initialGame()
   }, [])
 
+  // Return to Lobby after elimination
+  const returnToLobby = useCallback(() => {
+    setPhase('lobby')
+  }, [])
+
   // Start Race (Host only)
   const startRace = useCallback(() => {
     const socket = socketRef.current
@@ -376,7 +394,7 @@ export default function Page() {
 
   const move = useCallback((direction: number, sprint = false) => {
     const g = gameRef.current
-    if (g.running) g.vx = direction * (sprint ? 380 : 250)
+    if (g.running) g.vx = direction * (sprint ? 390 : 260)
   }, [])
 
   const stopMove = useCallback(() => {
@@ -462,168 +480,434 @@ export default function Page() {
     }
   }, [phase, attack, hide, jump, move, stopMove])
 
-  // Canvas Drawing Routine
+  // Clear, Vector-Style Canvas Drawing
   const draw = useCallback(
     (ctx: CanvasRenderingContext2D, w: number, h: number) => {
       const g = gameRef.current
       ctx.clearRect(0, 0, w, h)
 
-      // High-contrast clean background
-      ctx.fillStyle = '#0f172a'
+      // High-contrast dark sky
+      ctx.fillStyle = '#0a111c'
       ctx.fillRect(0, 0, w, h)
 
-      // Track Terrain
-      ctx.fillStyle = '#1e293b'
-      ctx.fillRect(0, h * 0.54, w, h * 0.46)
+      // Gradient horizon line
+      ctx.fillStyle = '#142334'
+      ctx.fillRect(0, h * 0.52, w, h * 0.48)
 
-      // Solid Ground Line
+      // Solid Bold Yellow Ground Line
       ctx.fillStyle = '#ffd600'
-      ctx.fillRect(0, h * 0.76, w, 4)
+      ctx.fillRect(0, h * 0.76, w, 5)
 
-      // Track Grid Lines
-      ctx.strokeStyle = '#334155'
-      ctx.lineWidth = 2
-      for (let x = -((g.x * 1.5) % 32); x < w; x += 32) {
+      // Crisp Ground Grid Lines
+      ctx.strokeStyle = '#27445d'
+      ctx.lineWidth = 2.5
+      for (let x = -((g.x * 1.5) % 40); x < w; x += 40) {
         ctx.beginPath()
         ctx.moveTo(x, h * 0.81)
-        ctx.lineTo(x + 13, h * 0.81)
+        ctx.lineTo(x + 18, h * 0.81)
         ctx.stroke()
       }
 
       const px = 160
       const base = h * 0.76 - g.y
 
-      const pixel = (x: number, y: number, ww: number, hh: number, c: string) => {
-        ctx.fillStyle = c
-        ctx.fillRect(Math.round(x), Math.round(y), Math.round(ww), Math.round(hh))
-      }
+      // Smooth, Clear Vector Runner Function (Non-pixel, high clarity)
+      const drawVectorRunner = (
+        x: number,
+        y: number,
+        color: string,
+        name: string,
+        weapon: Weapon,
+        isHidden: boolean,
+        isOut: boolean,
+        isAttacking: boolean,
+        distanceX: number,
+        isJumping: boolean
+      ) => {
+        if (isOut) return // Eliminated players removed from active race canvas
 
-      const drawRunner = (x: number, y: number, c: string, name: string, weapon: Weapon, isHidden: boolean, isOut: boolean, isAttacking: boolean) => {
         ctx.save()
-        if (isOut) {
-          ctx.globalAlpha = 0.3
-        }
+
+        // Ground shadow
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.45)'
+        ctx.beginPath()
+        ctx.ellipse(x + 16, h * 0.76 + 3, 20, 5, 0, 0, Math.PI * 2)
+        ctx.fill()
 
         if (isHidden) {
-          pixel(x - 5, y - 16, 46, 16, '#00c853')
-          pixel(x + 2, y - 28, 32, 14, '#69f0ae')
-        } else {
-          // Character sprite with bold borders
-          pixel(x + 9, y - 38, 18, 18, c)
-          pixel(x + 5, y - 20, 27, 21, c)
-          pixel(x + 10, y + 1, 7, 20, c)
-          pixel(x + 24, y + 1, 7, 20, c)
-          pixel(x + 5, y + 18, 14, 5, c)
-          pixel(x + 24, y + 18, 14, 5, c)
+          // Lush Vector Bush Cover
+          ctx.fillStyle = '#00a843'
+          ctx.beginPath()
+          ctx.arc(x + 2, y - 18, 16, 0, Math.PI * 2)
+          ctx.arc(x + 18, y - 24, 20, 0, Math.PI * 2)
+          ctx.arc(x + 34, y - 16, 16, 0, Math.PI * 2)
+          ctx.fill()
 
-          // Weapon
-          if (weapon !== 'unarmed') {
-            const weaponColor = weapon === 'blade' ? '#ffffff' : '#ffd600'
+          ctx.fillStyle = '#00c853'
+          ctx.beginPath()
+          ctx.arc(x + 18, y - 22, 14, 0, Math.PI * 2)
+          ctx.fill()
+
+          ctx.strokeStyle = '#000000'
+          ctx.lineWidth = 2.5
+          ctx.beginPath()
+          ctx.arc(x + 2, y - 18, 16, 0, Math.PI * 2)
+          ctx.stroke()
+          ctx.beginPath()
+          ctx.arc(x + 18, y - 24, 20, 0, Math.PI * 2)
+          ctx.stroke()
+          ctx.beginPath()
+          ctx.arc(x + 34, y - 16, 16, 0, Math.PI * 2)
+          ctx.stroke()
+        } else {
+          // Running animation cycle
+          const runCycle = isJumping ? 0.8 : (distanceX / 14) % (Math.PI * 2)
+          const legSwing = Math.sin(runCycle) * 14
+          const armSwing = Math.cos(runCycle) * 12
+
+          // --- LEGS ---
+          ctx.lineWidth = 6
+          ctx.lineCap = 'round'
+          ctx.strokeStyle = '#000000'
+
+          // Left Leg (Back)
+          ctx.beginPath()
+          ctx.moveTo(x + 12, y - 12)
+          ctx.lineTo(x + 12 - legSwing, y + 16)
+          ctx.stroke()
+
+          // Right Leg (Front)
+          ctx.beginPath()
+          ctx.moveTo(x + 20, y - 12)
+          ctx.lineTo(x + 20 + legSwing, y + 16)
+          ctx.stroke()
+
+          // --- TORSO ---
+          ctx.fillStyle = color
+          ctx.strokeStyle = '#000000'
+          ctx.lineWidth = 2.5
+
+          // Body shape
+          ctx.beginPath()
+          ctx.roundRect(x + 6, y - 32, 20, 24, 6)
+          ctx.fill()
+          ctx.stroke()
+
+          // Runner athletic stripe
+          ctx.fillStyle = '#000000'
+          ctx.fillRect(x + 14, y - 32, 4, 24)
+
+          // --- HEAD & VISOR ---
+          ctx.fillStyle = color
+          ctx.beginPath()
+          ctx.arc(x + 16, y - 44, 11, 0, Math.PI * 2)
+          ctx.fill()
+          ctx.stroke()
+
+          // Cyber Visor / Faceplate
+          ctx.fillStyle = '#000000'
+          ctx.beginPath()
+          ctx.roundRect(x + 16, y - 48, 12, 8, 3)
+          ctx.fill()
+
+          ctx.fillStyle = '#ffd600'
+          ctx.fillRect(x + 18, y - 46, 8, 4)
+
+          // --- ARMS & WEAPON ---
+          ctx.strokeStyle = '#000000'
+          ctx.lineWidth = 5
+
+          // Left Arm
+          ctx.beginPath()
+          ctx.moveTo(x + 8, y - 26)
+          ctx.lineTo(x + 4 - armSwing, y - 12)
+          ctx.stroke()
+
+          // Right Arm (Holding Weapon)
+          ctx.beginPath()
+          ctx.moveTo(x + 24, y - 26)
+          if (isAttacking) {
+            ctx.lineTo(x + 36, y - 28)
+          } else {
+            ctx.lineTo(x + 28 + armSwing, y - 14)
+          }
+          ctx.stroke()
+
+          // Weapon Drawing
+          if (weapon === 'blade') {
+            ctx.save()
             if (isAttacking) {
-              pixel(x + 36, y - 28, 28, 7, weaponColor)
+              // Slash Arc
+              ctx.strokeStyle = '#ffd600'
+              ctx.lineWidth = 4
+              ctx.beginPath()
+              ctx.arc(x + 30, y - 26, 32, -0.4, 0.8)
+              ctx.stroke()
+
+              // Katana Blade
+              ctx.strokeStyle = '#ffffff'
+              ctx.lineWidth = 4
+              ctx.beginPath()
+              ctx.moveTo(x + 28, y - 28)
+              ctx.lineTo(x + 58, y - 34)
+              ctx.stroke()
             } else {
-              pixel(x + 28, y - 18, 16, 5, weaponColor)
+              // Holstered Blade
+              ctx.strokeStyle = '#ffffff'
+              ctx.lineWidth = 3.5
+              ctx.beginPath()
+              ctx.moveTo(x + 24, y - 18)
+              ctx.lineTo(x + 42, y - 28)
+              ctx.stroke()
             }
+            ctx.restore()
+          } else if (weapon === 'bat') {
+            ctx.save()
+            ctx.strokeStyle = '#ffd600'
+            ctx.lineWidth = 6
+            ctx.lineCap = 'square'
+            ctx.beginPath()
+            if (isAttacking) {
+              ctx.moveTo(x + 28, y - 28)
+              ctx.lineTo(x + 54, y - 32)
+            } else {
+              ctx.moveTo(x + 24, y - 16)
+              ctx.lineTo(x + 38, y - 26)
+            }
+            ctx.stroke()
+            ctx.restore()
           }
         }
 
-        // Name tag in Neo-Brutalist badge
-        ctx.font = 'bold 10px monospace'
-        ctx.fillStyle = '#ffd600'
-        ctx.textAlign = 'center'
-        ctx.fillText(name.slice(0, 10), x + 18, y - 44)
+        // --- NAME BADGE ---
+        ctx.font = 'bold 11px Space Grotesk, monospace'
+        const textWidth = ctx.measureText(name).width
+        const badgeW = textWidth + 18
+        const badgeX = x + 16 - badgeW / 2
+        const badgeY = y - 66
+
+        ctx.fillStyle = '#ffffff'
+        ctx.strokeStyle = '#000000'
+        ctx.lineWidth = 2
+        ctx.beginPath()
+        ctx.roundRect(badgeX, badgeY, badgeW, 18, 4)
+        ctx.fill()
+        ctx.stroke()
+
+        // Color indicator dot
+        ctx.fillStyle = color
+        ctx.beginPath()
+        ctx.arc(badgeX + 8, badgeY + 9, 3.5, 0, Math.PI * 2)
+        ctx.fill()
+
+        // Text
+        ctx.fillStyle = '#000000'
+        ctx.textAlign = 'left'
+        ctx.fillText(name, badgeX + 14, badgeY + 13)
+
         ctx.restore()
       }
 
-      // Draw Remote Players
+      // Draw Remote Active Players
       players.forEach(p => {
         if (p.id === myId) return
+        if (p.lives <= 0 || p.status === 'OUT') return // Don't draw eliminated players
         const screenX = px + (p.x - g.x)
-        if (screenX < -100 || screenX > w + 100) return
+        if (screenX < -120 || screenX > w + 120) return
         const screenY = h * 0.76 - (p.y || 0)
-        drawRunner(
+        drawVectorRunner(
           screenX,
           screenY,
           p.color,
           p.name,
           p.weapon,
           p.hidden,
-          p.lives <= 0 || p.status === 'OUT',
-          p.attack > 0
+          false,
+          p.attack > 0,
+          p.x,
+          (p.y || 0) > 0
         )
       })
 
-      // Draw Local Player
+      // Draw Local Player (if alive)
       const localPlayer = players.find(p => p.id === myId)
       const myColor = localPlayer ? localPlayer.color : COLORS[0]
       const myName = localPlayer ? `${localPlayer.name} (YOU)` : 'YOU'
+
       if (g.flash > 0) {
         ctx.fillStyle = 'rgba(255, 59, 48, 0.4)'
         ctx.fillRect(0, 0, w, h)
       }
-      drawRunner(
-        px,
-        base,
-        myColor,
-        myName,
-        g.weapon,
-        g.hidden,
-        g.lives <= 0,
-        g.attack > 0
-      )
 
-      // Draw Hazards
+      if (g.lives > 0) {
+        drawVectorRunner(
+          px,
+          base,
+          myColor,
+          myName,
+          g.weapon,
+          g.hidden,
+          false,
+          g.attack > 0,
+          g.x,
+          g.y > 0
+        )
+      }
+
+      // --- VECTOR HAZARDS ---
       g.hazards.forEach(o => {
         const x = px + o.x - g.x
-        if (x < -80 || x > w + 80) return
+        if (x < -100 || x > w + 100) return
         const y = h * 0.76 - (o.lane ? 66 : 0)
 
+        ctx.save()
         if (o.type === 'cactus') {
-          pixel(x + 10, y - 40, 13, 40, '#00c853')
-          pixel(x, y - 25, 11, 9, '#00c853')
-          pixel(x + 26, y - 30, 10, 9, '#00c853')
+          // Sharp Large Cactus
+          ctx.fillStyle = '#00c853'
+          ctx.strokeStyle = '#000000'
+          ctx.lineWidth = 2.5
+          ctx.beginPath()
+          ctx.roundRect(x + 10, y - 48, 16, 48, 6) // Main stem
+          ctx.roundRect(x - 4, y - 36, 14, 12, 4) // Left arm
+          ctx.roundRect(x - 4, y - 36, 8, 20, 4)
+          ctx.roundRect(x + 24, y - 40, 14, 12, 4) // Right arm
+          ctx.roundRect(x + 30, y - 40, 8, 22, 4)
+          ctx.fill()
+          ctx.stroke()
         } else if (o.type === 'rock') {
-          pixel(x, y - 19, 36, 19, '#94a3b8')
+          // Faceted Boulder
+          ctx.fillStyle = '#64748b'
+          ctx.strokeStyle = '#000000'
+          ctx.lineWidth = 2.5
+          ctx.beginPath()
+          ctx.moveTo(x, y)
+          ctx.lineTo(x + 8, y - 26)
+          ctx.lineTo(x + 28, y - 32)
+          ctx.lineTo(x + 44, y - 18)
+          ctx.lineTo(x + 40, y)
+          ctx.closePath()
+          ctx.fill()
+          ctx.stroke()
         } else if (o.type === 'bush') {
-          pixel(x, y - 21, 48, 21, '#00c853')
-          pixel(x + 8, y - 31, 23, 12, '#69f0ae')
+          // Lush Vector Bush
+          ctx.fillStyle = '#00c853'
+          ctx.strokeStyle = '#000000'
+          ctx.lineWidth = 2.5
+          ctx.beginPath()
+          ctx.arc(x + 10, y - 18, 16, 0, Math.PI * 2)
+          ctx.arc(x + 26, y - 24, 18, 0, Math.PI * 2)
+          ctx.arc(x + 42, y - 18, 16, 0, Math.PI * 2)
+          ctx.fill()
+          ctx.stroke()
         } else if (o.type === 'box') {
-          pixel(x, y - 30, 34, 30, '#b45309')
-          pixel(x + 5, y - 25, 24, 4, '#ffd600')
+          // Wooden Crate
+          ctx.fillStyle = '#b45309'
+          ctx.strokeStyle = '#000000'
+          ctx.lineWidth = 2.5
+          ctx.fillRect(x, y - 36, 36, 36)
+          ctx.strokeRect(x, y - 36, 36, 36)
+          ctx.strokeStyle = '#ffd600'
+          ctx.lineWidth = 2
+          ctx.beginPath()
+          ctx.moveTo(x, y - 36)
+          ctx.lineTo(x + 36, y)
+          ctx.stroke()
         } else if (o.type === 'bird') {
-          pixel(x, y - 14, 28, 8, '#ff3b30')
-          pixel(x + 8, y - 23, 7, 9, '#ff3b30')
+          // Flying Cyber Bird
+          ctx.fillStyle = '#ff3b30'
+          ctx.strokeStyle = '#000000'
+          ctx.lineWidth = 2
+          ctx.beginPath()
+          ctx.arc(x + 14, y - 16, 10, 0, Math.PI * 2)
+          ctx.fill()
+          ctx.stroke()
+          // Wings
+          ctx.beginPath()
+          ctx.moveTo(x + 4, y - 16)
+          ctx.lineTo(x - 8, y - 28)
+          ctx.lineTo(x + 10, y - 20)
+          ctx.lineTo(x + 24, y - 28)
+          ctx.lineTo(x + 18, y - 16)
+          ctx.fill()
+          ctx.stroke()
         } else if (o.type === 'wolf') {
-          pixel(x, y - 22, 40, 17, '#a855f7')
-          pixel(x + 28, y - 33, 15, 15, '#a855f7')
+          // Cyber Wolf
+          ctx.fillStyle = '#8b5cf6'
+          ctx.strokeStyle = '#000000'
+          ctx.lineWidth = 2.5
+          ctx.beginPath()
+          ctx.roundRect(x, y - 26, 44, 26, 8)
+          ctx.fill()
+          ctx.stroke()
+          // Glowing Eyes
+          ctx.fillStyle = '#ffd600'
+          ctx.fillRect(x + 34, y - 20, 6, 4)
         }
+        ctx.restore()
       })
 
-      // Draw Pickups
+      // --- VECTOR WEAPON PICKUPS ---
       g.pickups.forEach(p => {
         const x = px + p.x - g.x
-        if (x > -60 && x < w + 60 && !p.picked) {
-          pixel(x, h * 0.76 - 12, 30, 6, '#ffd600')
-          pixel(x + 9, h * 0.76 - 26, 12, 15, p.weapon === 'blade' ? '#ffffff' : '#ffd600')
+        if (x > -80 && x < w + 80 && !p.picked) {
+          ctx.save()
+          // Golden Crate Platform
+          ctx.fillStyle = '#ffd600'
+          ctx.strokeStyle = '#000000'
+          ctx.lineWidth = 2.5
+          ctx.beginPath()
+          ctx.roundRect(x - 6, h * 0.76 - 16, 38, 16, 4)
+          ctx.fill()
+          ctx.stroke()
+
+          // Floating Weapon Icon
+          if (p.weapon === 'blade') {
+            ctx.fillStyle = '#ffffff'
+            ctx.strokeStyle = '#000000'
+            ctx.lineWidth = 2
+            ctx.beginPath()
+            ctx.moveTo(x + 2, h * 0.76 - 38)
+            ctx.lineTo(x + 24, h * 0.76 - 22)
+            ctx.lineTo(x + 20, h * 0.76 - 20)
+            ctx.closePath()
+            ctx.fill()
+            ctx.stroke()
+          } else {
+            ctx.fillStyle = '#ffd600'
+            ctx.strokeStyle = '#000000'
+            ctx.lineWidth = 2
+            ctx.fillRect(x + 6, h * 0.76 - 36, 12, 18)
+            ctx.strokeRect(x + 6, h * 0.76 - 36, 12, 18)
+          }
+          ctx.restore()
         }
       })
 
-      // Finish Signal Flare (at 8200m)
+      // --- FINISH SIGNAL FLARE ---
       const finishX = px + 8200 - g.x
-      if (finishX > -100 && finishX < w + 200) {
+      if (finishX > -120 && finishX < w + 240) {
+        ctx.save()
         ctx.fillStyle = '#ffd600'
-        ctx.fillRect(finishX, h * 0.2, 6, h * 0.56)
-        ctx.fillRect(finishX - 10, h * 0.2, 54, 26)
+        ctx.strokeStyle = '#000000'
+        ctx.lineWidth = 3.5
+        ctx.fillRect(finishX, h * 0.16, 8, h * 0.6)
+        ctx.strokeRect(finishX, h * 0.16, 8, h * 0.6)
+
+        // Banner
+        ctx.fillRect(finishX - 16, h * 0.16, 70, 32)
+        ctx.strokeRect(finishX - 16, h * 0.16, 70, 32)
+
         ctx.fillStyle = '#000000'
-        ctx.font = 'bold 11px monospace'
-        ctx.fillText('FINISH', finishX + 17, h * 0.2 + 13)
+        ctx.font = '900 13px Space Grotesk, sans-serif'
+        ctx.fillText('FINISH', finishX - 6, h * 0.16 + 21)
+        ctx.restore()
       }
 
       // HUD Track Label
       ctx.fillStyle = '#ffd600'
-      ctx.font = 'bold 11px monospace'
+      ctx.font = '800 11px JetBrains Mono, monospace'
       ctx.textAlign = 'left'
-      ctx.fillText(`SECTOR 01 // ${players.length} LIVE RUNNERS`, 18, 26)
+      ctx.fillText(`SECTOR 01 // ${players.filter(p => p.status === 'RUNNING').length} ACTIVE RUNNERS`, 20, 28)
     },
     [players, myId]
   )
@@ -650,7 +934,7 @@ export default function Page() {
       const dt = Math.min(0.04, (now - lastRef.current) / 1000 || 0)
       lastRef.current = now
 
-      if (g.running) {
+      if (g.running && g.lives > 0) {
         g.x = Math.max(0, g.x + g.vx * dt)
         g.y += g.vy * dt
         g.vy -= 1600 * dt
@@ -695,8 +979,24 @@ export default function Page() {
             g.flash = 0.25
             g.hidden = false
             g.attack = 0
-            g.message = `Hit by ${o.type.toUpperCase()}! (-50m, ${g.lives} lives left)`
-            if (g.lives === 0) g.message = 'Zero lives — keep racing to the finish!'
+
+            if (g.lives <= 0) {
+              // ALL LIVES OVER: Stop and wait in lobby
+              g.running = false
+              setPhase('eliminated')
+              const socket = socketRef.current
+              if (socket) {
+                socket.emit('player-update', {
+                  x: g.x,
+                  y: g.y,
+                  lives: 0,
+                  status: 'OUT',
+                  progress: Math.min(100, Math.round(g.x / 82)),
+                })
+              }
+            } else {
+              g.message = `Hit by ${o.type.toUpperCase()}! (-50m, ${g.lives} lives left)`
+            }
           }
         })
 
@@ -822,23 +1122,19 @@ export default function Page() {
         </div>
       )}
 
-      {/* ================= PHASE 1: Entry / Welcome (Matching Reference Image) ================= */}
+      {/* ================= PHASE 1: Entry Screen ================= */}
       {phase === 'entry' && (
         <section className="hero-section">
-          {/* Top pill badge */}
           <div className="badge-pill">ANONYMOUS & REAL-TIME MULTIPLAYER</div>
 
-          {/* Main Giant Headline with Highlight Badge */}
           <h1 className="hero-title">
             RUN FAST. <span className="badge-highlight">SURVIVE.</span>
           </h1>
 
-          {/* Subtitle description */}
           <p className="hero-subtitle">
             Real-time survival race with real runners, completely synchronized. No profiles, no bots, no pressure, just pure competition.
           </p>
 
-          {/* Center Form Card */}
           <div className="entry-form-container">
             <div className="form-group">
               <label className="form-label" htmlFor="runnerName">
@@ -872,7 +1168,6 @@ export default function Page() {
             </button>
           </div>
 
-          {/* Reference Bottom Badges Bar */}
           <div className="footer-bar" style={{ width: '100%', marginTop: 'auto' }}>
             <div className="footer-item">⚡ 100% REAL CONNECTED RUNNERS</div>
             <div className="footer-item">🎯 CLEAN START LINE REJOINS</div>
@@ -1072,7 +1367,7 @@ export default function Page() {
                     </div>
                   </div>
                   <div style={{ color: 'var(--red)', fontSize: '12px', letterSpacing: '1px' }}>
-                    {'♥'.repeat(clamp(p.lives ?? 5, 0, 5))}
+                    {p.lives > 0 ? '♥'.repeat(clamp(p.lives ?? 5, 0, 5)) : <span style={{ color: '#000', fontSize: '10px', fontWeight: 800 }}>OUT</span>}
                   </div>
                 </div>
               ))}
@@ -1087,14 +1382,57 @@ export default function Page() {
                 <br />
                 • Bats & Blades deal melee pushback.
                 <br />
-                • First 3 to 8200m win the podium!
+                • Losing all 5 lives knocks you out to the lobby.
               </p>
             </div>
           </aside>
         </section>
       )}
 
-      {/* ================= PHASE 4: Results Screen ================= */}
+      {/* ================= PHASE 4: Eliminated (Waiting in Lobby) ================= */}
+      {phase === 'eliminated' && (
+        <div className="neo-modal-overlay">
+          <div className="neo-modal-card" style={{ maxWidth: 520, textAlign: 'center' }}>
+            <div className="badge-pill" style={{ background: '#ff3b30', color: '#ffffff', borderColor: '#000000' }}>
+              ALL LIVES SPENT
+            </div>
+            <h1 style={{ fontSize: '38px', fontWeight: 900, margin: '14px 0 12px' }}>
+              YOU ARE <span className="badge-highlight" style={{ background: '#ff3b30', color: '#fff' }}>ELIMINATED.</span>
+            </h1>
+            <p style={{ color: 'var(--muted)', fontSize: '14px', lineHeight: 1.6, margin: '0 0 24px' }}>
+              You lost all 5 lives! Please wait in the lobby — you will automatically join the next round with fresh lives when the host restarts.
+            </p>
+
+            <div className="neo-card" style={{ padding: 18, marginBottom: 24, textAlign: 'left' }}>
+              <div className="card-header-line" style={{ marginBottom: 12, paddingBottom: 8 }}>
+                <span>SURVIVING RUNNERS</span>
+                <span>STATUS</span>
+              </div>
+              {players
+                .filter(p => p.id !== myId)
+                .map(p => (
+                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 0', fontSize: '12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', backgroundColor: p.color, border: '1px solid #000' }} />
+                      <strong>{p.name}</strong>
+                    </div>
+                    <span style={{ fontFamily: 'JetBrains Mono', fontWeight: 800, color: p.lives > 0 ? '#00c853' : '#ff3b30' }}>
+                      {p.lives > 0 ? `${p.lives} LIVES (${p.progress}%)` : 'ELIMINATED'}
+                    </span>
+                  </div>
+                ))}
+            </div>
+
+            <div style={{ display: 'flex', gap: 12 }}>
+              <button className="hero-cta-button" onClick={returnToLobby} style={{ flex: 1 }}>
+                ← RETURN TO LOBBY
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= PHASE 5: Results Screen ================= */}
       {phase === 'results' && (
         <div className="neo-modal-overlay">
           <div className="neo-modal-card" style={{ maxWidth: 520 }}>
@@ -1180,7 +1518,7 @@ export default function Page() {
                   Walk over a bat or blade to equip it. Press <kbd>F</kbd> or <kbd>E</kbd> to swing.
                 </p>
                 <p style={{ color: 'var(--muted)', fontSize: 11, lineHeight: 1.6 }}>
-                  Ambush strikes from bushes deal direct damage and push competitors back 40m.
+                  Ambush strikes from bushes deal direct damage and push competitors back 45m.
                 </p>
               </div>
 
@@ -1190,7 +1528,7 @@ export default function Page() {
                   Cacti, rocks, birds, and wolves cost 1 life and push you back 50m.
                 </p>
                 <p style={{ color: 'var(--muted)', fontSize: 11, lineHeight: 1.6 }}>
-                  Zero lives lets you keep running as a ghost to reach the finish.
+                  Losing all 5 lives knocks you out to the lobby until the next round.
                 </p>
               </div>
             </div>

@@ -301,6 +301,11 @@ app.prepare().then(() => {
       if (typeof payload.status === 'string') player.status = payload.status;
       if (typeof payload.progress === 'number') player.progress = payload.progress;
 
+      // If player lost all lives, ensure status is OUT
+      if (player.lives <= 0) {
+        player.status = 'OUT';
+      }
+
       // Broadcast position to other runners
       socket.to(roomId).emit('player-moved', {
         playerId: socket.id,
@@ -315,6 +320,18 @@ app.prepare().then(() => {
         status: player.status,
         progress: player.progress,
       });
+
+      // If all active players are either FINISHED or OUT, end the match
+      if (room.status === 'in-progress') {
+        const activeRunners = Array.from(room.players.values()).filter(p => p.status === 'RUNNING');
+        if (activeRunners.length === 0) {
+          room.status = 'results';
+          io.to(roomId).emit('race-ended', {
+            finishers: room.finishers,
+            players: serializePlayers(room),
+          });
+        }
+      }
     });
 
     // Combat attack event
