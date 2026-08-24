@@ -166,8 +166,21 @@ export default function Page() {
     // Room update: server authoritative player list
     socket.on('room-update', (data: { roomId: string; status: 'lobby' | 'in-progress' | 'results'; players: Player[]; finishers?: string[] }) => {
       setPlayers(data.players || [])
-      if (data.status === 'lobby' && phase !== 'entry') {
+      if (data.status === 'lobby') {
+        setPhase(current => (current === 'entry' ? 'entry' : 'lobby'))
+      }
+    })
+
+    // Joined room confirmation
+    socket.on('joined-room', (res: { success: boolean; player: Player; room: { id: string; status: 'lobby' | 'in-progress' | 'results'; players: Player[] } }) => {
+      setIsJoining(false)
+      if (res && res.success && res.player && res.room) {
+        setMyId(res.player.id)
+        setPlayers(res.room.players || [res.player])
+        setInRoom(true)
         setPhase('lobby')
+        setErrorMessage(null)
+        gameRef.current = initialGame()
       }
     })
 
@@ -293,7 +306,7 @@ export default function Page() {
       socket.emit('leave-room')
       socket.disconnect()
     }
-  }, [phase])
+  }, [])
 
   // Join Room Action
   const joinRoom = useCallback(() => {
