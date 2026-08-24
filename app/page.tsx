@@ -134,7 +134,7 @@ export default function Page() {
 
   const [connected, setConnected] = useState(false)
   const [inRoom, setInRoom] = useState(false)
-  const [roomCode, setRoomCode] = useState('PX7K2')
+  const [roomCode, setRoomCode] = useState('SPR01')
   const [playerName, setPlayerName] = useState('')
   const [myId, setMyId] = useState('')
   const [phase, setPhase] = useState<'entry' | 'lobby' | 'race' | 'eliminated' | 'results'>('entry')
@@ -307,7 +307,11 @@ export default function Page() {
     const socket = socketRef.current
     if (!socket) return
 
-    const cleanRoom = roomCode.trim().toUpperCase().slice(0, 8) || 'PX7K2'
+    let cleanRoom = roomCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')
+    if (!cleanRoom.startsWith('SPR')) {
+      cleanRoom = 'SPR' + cleanRoom.replace(/^S?P?R?/, '')
+    }
+    cleanRoom = cleanRoom.slice(0, 8) || 'SPR01'
     setRoomCode(cleanRoom)
     setIsJoining(true)
     setErrorMessage(null)
@@ -916,7 +920,7 @@ export default function Page() {
       ctx.fillStyle = '#ffd600'
       ctx.font = '800 11px JetBrains Mono, monospace'
       ctx.textAlign = 'left'
-      ctx.fillText(`SECTOR 01 // ${players.filter(p => p.status === 'RUNNING').length} RUNNERS LIVE`, 20, 28)
+      ctx.fillText(`SPOTGAME // ${players.filter(p => p.status === 'RUNNING').length} RUNNERS LIVE`, 20, 28)
     },
     [players, myId]
   )
@@ -1162,10 +1166,12 @@ export default function Page() {
       {/* Top Bar Header */}
       <header className="topbar">
         <div className="brand">
-          <span className="brand-mark">PX</span>
+          <span className="brand-mark" style={{ background: 'var(--yellow)', color: '#000000', fontWeight: 900 }}>
+            SG
+          </span>
           <div>
-            <strong>PIXEL PURSUIT</strong>
-            <small>REAL-TIME SURVIVAL RUN</small>
+            <strong>spotGame</strong>
+            <small>ONLINE MULTIPLAYER SURVIVAL</small>
           </div>
         </div>
 
@@ -1256,14 +1262,32 @@ export default function Page() {
 
             <div className="form-group">
               <label className="form-label" htmlFor="room">
-                ROOM CODE
+                ROOM CODE (LOCKED PREFIX: SPR)
               </label>
               <input
                 id="room"
                 className="neo-input"
                 value={roomCode}
                 maxLength={8}
-                onChange={e => setRoomCode(e.target.value.toUpperCase())}
+                onChange={e => {
+                  let val = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '')
+                  if (!val.startsWith('SPR')) {
+                    val = 'SPR' + val.replace(/^S?P?R?/, '')
+                  }
+                  setRoomCode(val.slice(0, 8))
+                }}
+                onKeyDown={e => {
+                  const target = e.currentTarget
+                  if (
+                    e.key === 'Backspace' &&
+                    target.selectionStart !== null &&
+                    target.selectionStart <= 3 &&
+                    target.selectionEnd !== null &&
+                    target.selectionEnd <= 3
+                  ) {
+                    e.preventDefault()
+                  }
+                }}
               />
             </div>
 

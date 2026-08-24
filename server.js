@@ -143,7 +143,7 @@ app.prepare().then(() => {
 
     // Join Room handler
     socket.on('join-room', (payload, callback) => {
-      const rawRoomId = (payload && payload.roomId) || 'PX7K2';
+      const rawRoomId = (payload && payload.roomId) || 'SPR01';
       const roomId = String(rawRoomId).toUpperCase().trim().slice(0, 8);
       const runnerName = (payload && payload.name && String(payload.name).trim().slice(0, 12)) || '';
 
@@ -472,6 +472,6 @@ app.prepare().then(() => {
   });
 
   server.listen(port, () => {
-    console.log(`> Pixel Pursuit Multiplayer Server ready on http://${hostname}:${port}`);
+    console.log(`> spotGame Multiplayer Server ready on http://${hostname}:${port}`);
   });
 });

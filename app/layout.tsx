@@ -3,25 +3,17 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Pixel Pursuit — Real-Time Survival Run',
-  description: 'A colorful pixel-art multiplayer survival runner.',
-  generator: 'v0.app',
+  title: 'spotGame — Multiplayer Survival Runner',
+  description: 'spotGame — Real-time online survival runner with gun combat, ambush covers, and dynamic obstacle courses.',
+  generator: 'spotGame',
   icons: {
     icon: [
-      {
-        url: '/icon-light-32x32.png',
-        media: '(prefers-color-scheme: light)',
-      },
-      {
-        url: '/icon-dark-32x32.png',
-        media: '(prefers-color-scheme: dark)',
-      },
       {
         url: '/icon.svg',
         type: 'image/svg+xml',
       },
     ],
-    apple: '/apple-icon.png',
+    apple: '/icon.svg',
   },
 }
 
