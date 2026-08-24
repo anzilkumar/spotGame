@@ -244,37 +244,44 @@ app.prepare().then(() => {
       handlePlayerLeave(io, socket);
     });
 
-    // Start Race (Host only)
-    socket.on('start-race', () => {
-      const roomId = socket.data.roomId;
+    // Start Race (Host or any player in room)
+    socket.on('start-race', payload => {
+      let roomId = socket.data.roomId || (payload && payload.roomId);
+      if (!roomId) {
+        for (const [rId, r] of rooms.entries()) {
+          if (r.players.has(socket.id)) {
+            roomId = rId;
+            socket.data.roomId = rId;
+            break;
+          }
+        }
+      }
       if (!roomId) return;
       const room = rooms.get(roomId);
       if (!room) return;
 
-      const player = room.players.get(socket.id);
-      if (!player || !player.isHost) return;
-
       room.status = 'in-progress';
       room.finishers = [];
-      room.collectedPickups = new Set();
       room.seed = Math.floor(Math.random() * 1000000);
 
       // Fresh state for all runners at the start line
       for (const p of room.players.values()) {
         p.lives = 5;
+        p.bulletHits = 0;
         p.progress = 0;
         p.status = 'RUNNING';
-        p.weapon = 'unarmed';
+        p.weapon = 'gun';
         p.x = 0;
         p.y = 0;
         p.vx = 0;
         p.vy = 0;
+        p.facing = 1;
         p.hidden = false;
         p.attack = 0;
         p.rank = null;
       }
 
-      console.log(`[Room ${roomId}] Race started with seed ${room.seed}`);
+      console.log(`[Room ${roomId}] Race started by socket ${socket.id} with seed ${room.seed}`);
       io.to(roomId).emit('race-started', {
         seed: room.seed,
         players: serializePlayers(room),

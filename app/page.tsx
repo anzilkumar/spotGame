@@ -361,21 +361,21 @@ export default function Page() {
     setPhase('lobby')
   }, [])
 
-  // Start Race (Host only)
+  // Start Race Action
   const startRace = useCallback(() => {
     const socket = socketRef.current
     if (socket) {
-      socket.emit('start-race')
+      socket.emit('start-race', { roomId: roomCode })
     }
-  }, [])
+  }, [roomCode])
 
   // Reset Race Action
   const resetRace = useCallback(() => {
     const socket = socketRef.current
     if (socket) {
-      socket.emit('reset-race')
+      socket.emit('reset-race', { roomId: roomCode })
     }
-  }, [])
+  }, [roomCode])
 
   // Jump (clear ground thorns, cacti, rocks, or airborne birds)
   const jump = useCallback(() => {
@@ -1320,26 +1320,9 @@ export default function Page() {
               )}
             </div>
 
-            {isHost ? (
-              <button className="hero-cta-button" onClick={startRace}>
-                START ROUND ({players.length} RUNNER{players.length > 1 ? 'S' : ''}) <span>→</span>
-              </button>
-            ) : (
-              <div
-                style={{
-                  textAlign: 'center',
-                  padding: 16,
-                  background: '#fffae0',
-                  border: '2px solid #000000',
-                  boxShadow: '3px 3px 0px #000000',
-                  fontWeight: '800',
-                  fontSize: '13px',
-                  fontFamily: 'JetBrains Mono, monospace',
-                }}
-              >
-                WAITING FOR HOST TO START THE RUN...
-              </div>
-            )}
+            <button className="hero-cta-button" onClick={startRace}>
+              START ROUND ({players.length} RUNNER{players.length > 1 ? 'S' : ''}) <span>→</span>
+            </button>
           </div>
         </section>
       )}
