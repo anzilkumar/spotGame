@@ -128,6 +128,7 @@ export default function Page() {
   const frameRef = useRef(0)
   const lastRef = useRef(0)
   const socketRef = useRef<Socket | null>(null)
+  const myIdRef = useRef('')
   const gameRef = useRef<LocalGame>(initialGame())
   const lastEmitRef = useRef(0)
 
@@ -181,6 +182,7 @@ export default function Page() {
     socket.on('joined-room', (res: { success: boolean; player: Player; room: { id: string; status: 'lobby' | 'in-progress' | 'results'; players: Player[] } }) => {
       setIsJoining(false)
       if (res && res.success && res.player && res.room) {
+        myIdRef.current = res.player.id
         setMyId(res.player.id)
         setPlayers(res.room.players || [res.player])
         setInRoom(true)
@@ -245,7 +247,7 @@ export default function Page() {
     // Remote bullet fired
     socket.on('bullet-fired', (data: { id: string; shooterId: string; x: number; y: number; vx: number; facing: number }) => {
       const g = gameRef.current
-      if (data.shooterId !== myId) {
+      if (data.shooterId !== socket.id && data.shooterId !== myIdRef.current) {
         g.bullets.push({
           id: data.id,
           shooterId: data.shooterId,
@@ -297,7 +299,7 @@ export default function Page() {
       socket.emit('leave-room')
       socket.disconnect()
     }
-  }, [myId])
+  }, [])
 
   // Join Room Action (with Auto-Connect resilience)
   const joinRoom = useCallback(() => {
@@ -316,6 +318,7 @@ export default function Page() {
         (res: { success: boolean; code?: string; message?: string; player?: Player; room?: { id: string; status: 'lobby' | 'in-progress' | 'results'; players: Player[] } }) => {
           setIsJoining(false)
           if (res && res.success && res.player && res.room) {
+            myIdRef.current = res.player.id
             setMyId(res.player.id)
             setPlayers(res.room.players || [res.player])
             setInRoom(true)
