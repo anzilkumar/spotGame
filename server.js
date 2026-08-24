@@ -45,6 +45,7 @@ function serializePlayers(room) {
     y: p.y,
     vx: p.vx,
     vy: p.vy,
+    facing: p.facing || 1,
     hidden: p.hidden,
     attack: p.attack,
     rank: p.rank,
@@ -294,6 +295,7 @@ app.prepare().then(() => {
       if (typeof payload.y === 'number') player.y = payload.y;
       if (typeof payload.vx === 'number') player.vx = payload.vx;
       if (typeof payload.vy === 'number') player.vy = payload.vy;
+      if (typeof payload.facing === 'number') player.facing = payload.facing;
       if (typeof payload.hidden === 'boolean') player.hidden = payload.hidden;
       if (typeof payload.weapon === 'string') player.weapon = payload.weapon;
       if (typeof payload.attack === 'number') player.attack = payload.attack;
@@ -313,6 +315,7 @@ app.prepare().then(() => {
         y: player.y,
         vx: player.vx,
         vy: player.vy,
+        facing: player.facing || 1,
         hidden: player.hidden,
         weapon: player.weapon,
         attack: player.attack,
@@ -332,6 +335,20 @@ app.prepare().then(() => {
           });
         }
       }
+    });
+
+    // Gun shooting event
+    socket.on('player-shoot', payload => {
+      const roomId = socket.data.roomId;
+      if (!roomId) return;
+      socket.to(roomId).emit('bullet-fired', {
+        id: payload.id || `b_${Date.now()}_${Math.random()}`,
+        shooterId: socket.id,
+        x: payload.x,
+        y: payload.y,
+        vx: payload.vx,
+        facing: payload.facing || 1,
+      });
     });
 
     // Combat attack event

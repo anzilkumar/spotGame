@@ -3,12 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { io, Socket } from 'socket.io-client'
 
-type Weapon = 'unarmed' | 'bat' | 'blade'
+type Weapon = 'gun' | 'unarmed'
 type Player = {
   id: string
   name: string
   color: string
   lives: number
+  bulletHits: number
   progress: number
   status: 'RUNNING' | 'FINISHED' | 'OUT'
   weapon: Weapon
@@ -16,6 +17,7 @@ type Player = {
   y: number
   vx: number
   vy: number
+  facing: number // 1 = facing forward (right), -1 = facing backward (left)
   hidden: boolean
   attack: number
   rank?: number | null
@@ -25,16 +27,19 @@ type Player = {
 type Hazard = {
   id: string
   x: number
-  type: 'cactus' | 'rock' | 'bush' | 'bird' | 'wolf' | 'box'
+  type: 'thorns' | 'bird' | 'cactus' | 'rock' | 'bush' | 'box'
   lane: number
   hit?: boolean
 }
 
-type Pickup = {
+type Bullet = {
   id: string
+  shooterId: string
   x: number
-  weapon: Exclude<Weapon, 'unarmed'>
-  picked?: boolean
+  y: number
+  vx: number
+  distance: number
+  active: boolean
 }
 
 type LocalGame = {
@@ -43,17 +48,18 @@ type LocalGame = {
   vx: number
   y: number
   vy: number
+  facing: number
   hidden: boolean
   hideMeter: number
   hideCooldown: number
   weapon: Weapon
   attack: number
-  attackHit: boolean
   invincible: number
   flash: number
   lives: number
+  bulletHits: number // 2 hits = 1 life lost
+  bullets: Bullet[]
   hazards: Hazard[]
-  pickups: Pickup[]
   finishers: string[]
   message: string
 }
@@ -69,32 +75,24 @@ function createPRNG(seed: number) {
   }
 }
 
-function generateTrack(seed: number): { hazards: Hazard[]; pickups: Pickup[] } {
+function generateTrack(seed: number): { hazards: Hazard[] } {
   const rand = createPRNG(seed)
   const hazards: Hazard[] = []
-  const pickups: Pickup[] = []
-  const types: Hazard['type'][] = ['cactus', 'rock', 'bush', 'bird', 'wolf', 'box']
+  // Obstacles: thorns (ground - jump), bird (air - jump or crouch), cactus (jump), rock (jump), bush (cover), box (cover)
+  const types: Hazard['type'][] = ['thorns', 'bird', 'cactus', 'rock', 'bush', 'box']
 
-  let currentX = 650
+  let currentX = 500
   let hId = 0
   while (currentX < 8100) {
-    currentX += 280 + Math.floor(rand() * 420)
+    currentX += 240 + Math.floor(rand() * 380)
     if (currentX >= 8100) break
     const type = types[Math.floor(rand() * types.length)]
-    const lane = rand() > 0.72 ? 1 : 0
+    // Birds fly high, thorns and cacti on ground
+    const lane = type === 'bird' ? 1 : 0
     hazards.push({ id: `h_${hId++}`, x: currentX, type, lane, hit: false })
   }
 
-  let pX = 900
-  let pId = 0
-  while (pX < 7800) {
-    pX += 750 + Math.floor(rand() * 650)
-    if (pX >= 8000) break
-    const weapon: 'bat' | 'blade' = rand() > 0.5 ? 'bat' : 'blade'
-    pickups.push({ id: `p_${pId++}`, x: pX, weapon, picked: false })
-  }
-
-  return { hazards, pickups }
+  return { hazards }
 }
 
 function initialGame(): LocalGame {
@@ -104,19 +102,20 @@ function initialGame(): LocalGame {
     vx: 0,
     y: 0,
     vy: 0,
+    facing: 1, // Facing forward (right)
     hidden: false,
     hideMeter: 100,
     hideCooldown: 0,
-    weapon: 'unarmed',
+    weapon: 'gun', // Starts armed with Gun
     attack: 0,
-    attackHit: false,
     invincible: 0,
     flash: 0,
     lives: 5,
+    bulletHits: 0, // 2 hits reduce 1 life
+    bullets: [],
     hazards: [],
-    pickups: [],
     finishers: [],
-    message: 'Waiting at the starting line',
+    message: 'READY TO SPRINT & SHOOT',
   }
 }
 
@@ -204,8 +203,7 @@ export default function Page() {
         ...initialGame(),
         running: true,
         hazards: track.hazards,
-        pickups: track.pickups,
-        message: 'GO! Sprint to the signal flare!',
+        message: 'GO! Run, hide, and fire at rivals!',
       }
       setPlayers(data.players || [])
       setPhase('race')
@@ -223,6 +221,7 @@ export default function Page() {
               y: data.y ?? p.y,
               vx: data.vx ?? p.vx,
               vy: data.vy ?? p.vy,
+              facing: data.facing ?? p.facing ?? 1,
               hidden: data.hidden ?? p.hidden,
               weapon: (data.weapon as Weapon) ?? p.weapon,
               attack: data.attack ?? p.attack,
@@ -236,46 +235,20 @@ export default function Page() {
       )
     })
 
-    // Remote player attacked
-    socket.on('player-attacked', (data: { attackerId: string; weapon: Weapon; x: number; y: number; hidden: boolean }) => {
+    // Remote bullet fired
+    socket.on('bullet-fired', (data: { id: string; shooterId: string; x: number; y: number; vx: number; facing: number }) => {
       const g = gameRef.current
-      if (g.running && g.invincible <= 0 && !g.hidden) {
-        const dx = Math.abs(g.x - data.x)
-        const dy = Math.abs(g.y - data.y)
-        if (dx < 80 && dy < 55) {
-          g.lives = Math.max(0, g.lives - 1)
-          g.x = Math.max(0, g.x - 45)
-          g.invincible = 1.2
-          g.flash = 0.35
-          g.message = `Ambushed! Lost 1 life (-45m)`
-
-          if (g.lives <= 0) {
-            g.running = false
-            setPhase('eliminated')
-            socket.emit('player-update', {
-              x: g.x,
-              y: g.y,
-              lives: 0,
-              status: 'OUT',
-              progress: Math.min(100, Math.round(g.x / 82)),
-            })
-          } else {
-            socket.emit('player-update', {
-              x: g.x,
-              y: g.y,
-              lives: g.lives,
-              progress: Math.min(100, Math.round(g.x / 82)),
-            })
-          }
-        }
+      if (data.shooterId !== myId) {
+        g.bullets.push({
+          id: data.id,
+          shooterId: data.shooterId,
+          x: data.x,
+          y: data.y,
+          vx: data.vx,
+          distance: 0,
+          active: true,
+        })
       }
-    })
-
-    // Remote pickup collected
-    socket.on('pickup-collected', (data: { playerId: string; pickupId: string; weapon: Weapon }) => {
-      const g = gameRef.current
-      const target = g.pickups.find(p => p.id === data.pickupId || `${p.x}_${p.weapon}` === data.pickupId)
-      if (target) target.picked = true
     })
 
     // Player finished
@@ -317,7 +290,7 @@ export default function Page() {
       socket.emit('leave-room')
       socket.disconnect()
     }
-  }, [])
+  }, [myId])
 
   // Join Room
   const joinRoom = useCallback(() => {
@@ -386,15 +359,20 @@ export default function Page() {
     }
   }, [])
 
-  // Player Controls
+  // Jump (clear ground thorns, cacti, rocks, or airborne birds)
   const jump = useCallback(() => {
     const g = gameRef.current
     if (g.running && g.y === 0) g.vy = 650
   }, [])
 
+  // Move forward / backward with turning orientation
   const move = useCallback((direction: number, sprint = false) => {
     const g = gameRef.current
-    if (g.running) g.vx = direction * (sprint ? 390 : 260)
+    if (g.running) {
+      g.vx = direction * (sprint ? 390 : 260)
+      if (direction > 0) g.facing = 1 // Facing forward (right)
+      if (direction < 0) g.facing = -1 // Facing backward (left)
+    }
   }, [])
 
   const stopMove = useCallback(() => {
@@ -402,33 +380,53 @@ export default function Page() {
     if (g.running) g.vx = 0
   }, [])
 
+  // Hide in Box / Bush / Duck
   const hide = useCallback(() => {
     const g = gameRef.current
     if (g.running && g.hideCooldown <= 0 && g.hideMeter > 15) {
       g.hidden = !g.hidden
       g.hideCooldown = g.hidden ? 2.2 : 0.4
-      g.message = g.hidden ? 'Hidden in cover — ambush ready!' : 'Stepped out of cover'
+      g.message = g.hidden ? 'In cover — ready for ambush!' : 'Stepped out of cover'
     }
   }, [])
 
-  const attack = useCallback(() => {
+  // Fire Gun with visible bullets
+  const shootGun = useCallback(() => {
     const g = gameRef.current
-    if (g.running && g.weapon !== 'unarmed' && g.attack <= 0) {
-      g.attack = 0.38
-      g.attackHit = false
-      g.message = g.hidden ? 'Ambush strike!' : 'Weapon swing!'
+    if (g.running && g.attack <= 0) {
+      g.attack = 0.22 // Rapid fire cooldown
+      const bulletSpeed = 950 * g.facing
+      const bulletX = g.x + (g.facing === 1 ? 38 : -8)
+      const bulletY = 400 * 0.76 - g.y - 28
+
+      const newBullet: Bullet = {
+        id: `b_${myId}_${Date.now()}_${Math.random()}`,
+        shooterId: myId,
+        x: bulletX,
+        y: bulletY,
+        vx: bulletSpeed,
+        distance: 0,
+        active: true,
+      }
+
+      g.bullets.push(newBullet)
+      g.message = 'BANG! Gun fired!'
+
+      // Reveal from cover when firing
+      g.hidden = false
+
       const socket = socketRef.current
       if (socket) {
-        socket.emit('player-attacked', {
-          weapon: g.weapon,
-          x: g.x,
-          y: g.y,
-          hidden: g.hidden,
+        socket.emit('player-shoot', {
+          id: newBullet.id,
+          x: bulletX,
+          y: bulletY,
+          vx: bulletSpeed,
+          facing: g.facing,
         })
       }
-      g.hidden = false
     }
-  }, [])
+  }, [myId])
 
   // Keyboard Event Handlers
   useEffect(() => {
@@ -448,7 +446,7 @@ export default function Page() {
 
       if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') jump()
       if (e.code === 'ArrowDown' || e.code === 'KeyS') hide()
-      if (e.code === 'KeyF' || e.code === 'KeyE') attack()
+      if (e.code === 'KeyF' || e.code === 'KeyE') shootGun()
 
       const isSprint = pressedKeys.has('ShiftLeft') || pressedKeys.has('ShiftRight')
       if (pressedKeys.has('ArrowRight') || pressedKeys.has('KeyD')) {
@@ -478,28 +476,28 @@ export default function Page() {
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('keyup', handleKeyUp)
     }
-  }, [phase, attack, hide, jump, move, stopMove])
+  }, [phase, shootGun, hide, jump, move, stopMove])
 
-  // Clear, Vector-Style Canvas Drawing
+  // Clear Vector-Style Canvas Drawing
   const draw = useCallback(
     (ctx: CanvasRenderingContext2D, w: number, h: number) => {
       const g = gameRef.current
       ctx.clearRect(0, 0, w, h)
 
-      // High-contrast dark sky
-      ctx.fillStyle = '#0a111c'
+      // High-contrast dark arena background
+      ctx.fillStyle = '#09101d'
       ctx.fillRect(0, 0, w, h)
 
-      // Gradient horizon line
-      ctx.fillStyle = '#142334'
+      // Horizon Terrain Line
+      ctx.fillStyle = '#142336'
       ctx.fillRect(0, h * 0.52, w, h * 0.48)
 
       // Solid Bold Yellow Ground Line
       ctx.fillStyle = '#ffd600'
       ctx.fillRect(0, h * 0.76, w, 5)
 
-      // Crisp Ground Grid Lines
-      ctx.strokeStyle = '#27445d'
+      // Ground Grid Lines
+      ctx.strokeStyle = '#233f58'
       ctx.lineWidth = 2.5
       for (let x = -((g.x * 1.5) % 40); x < w; x += 40) {
         ctx.beginPath()
@@ -511,56 +509,58 @@ export default function Page() {
       const px = 160
       const base = h * 0.76 - g.y
 
-      // Smooth, Clear Vector Runner Function (Non-pixel, high clarity)
+      // Smooth Vector Runner Function with Facing Direction (Turn around)
       const drawVectorRunner = (
         x: number,
         y: number,
         color: string,
         name: string,
-        weapon: Weapon,
         isHidden: boolean,
         isOut: boolean,
         isAttacking: boolean,
         distanceX: number,
-        isJumping: boolean
+        isJumping: boolean,
+        facingDir: number, // 1 = facing right, -1 = facing left
+        isLocal: boolean
       ) => {
-        if (isOut) return // Eliminated players removed from active race canvas
-
-        ctx.save()
+        if (isOut) return
 
         // Ground shadow
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.45)'
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)'
         ctx.beginPath()
         ctx.ellipse(x + 16, h * 0.76 + 3, 20, 5, 0, 0, Math.PI * 2)
         ctx.fill()
 
         if (isHidden) {
-          // Lush Vector Bush Cover
-          ctx.fillStyle = '#00a843'
-          ctx.beginPath()
-          ctx.arc(x + 2, y - 18, 16, 0, Math.PI * 2)
-          ctx.arc(x + 18, y - 24, 20, 0, Math.PI * 2)
-          ctx.arc(x + 34, y - 16, 16, 0, Math.PI * 2)
-          ctx.fill()
-
-          ctx.fillStyle = '#00c853'
-          ctx.beginPath()
-          ctx.arc(x + 18, y - 22, 14, 0, Math.PI * 2)
-          ctx.fill()
-
+          // In Cover (Box/Bush stealth stance)
+          ctx.save()
+          ctx.fillStyle = '#b45309'
           ctx.strokeStyle = '#000000'
           ctx.lineWidth = 2.5
+          ctx.fillRect(x - 4, y - 36, 40, 36)
+          ctx.strokeRect(x - 4, y - 36, 40, 36)
+
+          // Crate crossbar
+          ctx.strokeStyle = '#ffd600'
           ctx.beginPath()
-          ctx.arc(x + 2, y - 18, 16, 0, Math.PI * 2)
+          ctx.moveTo(x - 4, y - 36)
+          ctx.lineTo(x + 36, y)
           ctx.stroke()
+
+          // Peeking helmet
+          ctx.fillStyle = color
           ctx.beginPath()
-          ctx.arc(x + 18, y - 24, 20, 0, Math.PI * 2)
+          ctx.arc(x + 16, y - 40, 9, 0, Math.PI * 2)
+          ctx.fill()
           ctx.stroke()
-          ctx.beginPath()
-          ctx.arc(x + 34, y - 16, 16, 0, Math.PI * 2)
-          ctx.stroke()
+          ctx.restore()
         } else {
-          // Running animation cycle
+          ctx.save()
+          // Flip character based on facing direction!
+          ctx.translate(x + 16, y)
+          ctx.scale(facingDir >= 0 ? 1 : -1, 1)
+          ctx.translate(-(x + 16), -y)
+
           const runCycle = isJumping ? 0.8 : (distanceX / 14) % (Math.PI * 2)
           const legSwing = Math.sin(runCycle) * 14
           const armSwing = Math.cos(runCycle) * 12
@@ -587,13 +587,13 @@ export default function Page() {
           ctx.strokeStyle = '#000000'
           ctx.lineWidth = 2.5
 
-          // Body shape
+          // Body suit
           ctx.beginPath()
           ctx.roundRect(x + 6, y - 32, 20, 24, 6)
           ctx.fill()
           ctx.stroke()
 
-          // Runner athletic stripe
+          // Athletic central stripe
           ctx.fillStyle = '#000000'
           ctx.fillRect(x + 14, y - 32, 4, 24)
 
@@ -604,7 +604,7 @@ export default function Page() {
           ctx.fill()
           ctx.stroke()
 
-          // Cyber Visor / Faceplate
+          // Cyber Visor
           ctx.fillStyle = '#000000'
           ctx.beginPath()
           ctx.roundRect(x + 16, y - 48, 12, 8, 3)
@@ -613,73 +613,46 @@ export default function Page() {
           ctx.fillStyle = '#ffd600'
           ctx.fillRect(x + 18, y - 46, 8, 4)
 
-          // --- ARMS & WEAPON ---
+          // --- ARMS & GUN ---
           ctx.strokeStyle = '#000000'
           ctx.lineWidth = 5
 
-          // Left Arm
+          // Left Arm (Back)
           ctx.beginPath()
           ctx.moveTo(x + 8, y - 26)
           ctx.lineTo(x + 4 - armSwing, y - 12)
           ctx.stroke()
 
-          // Right Arm (Holding Weapon)
+          // Right Arm (Holding Gun)
           ctx.beginPath()
           ctx.moveTo(x + 24, y - 26)
-          if (isAttacking) {
-            ctx.lineTo(x + 36, y - 28)
-          } else {
-            ctx.lineTo(x + 28 + armSwing, y - 14)
-          }
+          ctx.lineTo(x + 32, y - 24)
           ctx.stroke()
 
-          // Weapon Drawing
-          if (weapon === 'blade') {
-            ctx.save()
-            if (isAttacking) {
-              // Slash Arc
-              ctx.strokeStyle = '#ffd600'
-              ctx.lineWidth = 4
-              ctx.beginPath()
-              ctx.arc(x + 30, y - 26, 32, -0.4, 0.8)
-              ctx.stroke()
+          // --- GUN SPRITE ---
+          ctx.fillStyle = '#1e293b'
+          ctx.strokeStyle = '#000000'
+          ctx.lineWidth = 2
+          // Gun body & barrel pointing forward
+          ctx.fillRect(x + 28, y - 28, 16, 7)
+          ctx.strokeRect(x + 28, y - 28, 16, 7)
+          // Gun grip
+          ctx.fillRect(x + 30, y - 21, 5, 8)
+          ctx.strokeRect(x + 30, y - 21, 5, 8)
 
-              // Katana Blade
-              ctx.strokeStyle = '#ffffff'
-              ctx.lineWidth = 4
-              ctx.beginPath()
-              ctx.moveTo(x + 28, y - 28)
-              ctx.lineTo(x + 58, y - 34)
-              ctx.stroke()
-            } else {
-              // Holstered Blade
-              ctx.strokeStyle = '#ffffff'
-              ctx.lineWidth = 3.5
-              ctx.beginPath()
-              ctx.moveTo(x + 24, y - 18)
-              ctx.lineTo(x + 42, y - 28)
-              ctx.stroke()
-            }
-            ctx.restore()
-          } else if (weapon === 'bat') {
-            ctx.save()
-            ctx.strokeStyle = '#ffd600'
-            ctx.lineWidth = 6
-            ctx.lineCap = 'square'
+          // Muzzle Flash when firing
+          if (isAttacking) {
+            ctx.fillStyle = '#ffd600'
             ctx.beginPath()
-            if (isAttacking) {
-              ctx.moveTo(x + 28, y - 28)
-              ctx.lineTo(x + 54, y - 32)
-            } else {
-              ctx.moveTo(x + 24, y - 16)
-              ctx.lineTo(x + 38, y - 26)
-            }
-            ctx.stroke()
-            ctx.restore()
+            ctx.arc(x + 48, y - 25, 7, 0, Math.PI * 2)
+            ctx.fill()
           }
+
+          ctx.restore()
         }
 
-        // --- NAME BADGE ---
+        // --- NAME BADGE (Unflipped, always readable) ---
+        ctx.save()
         ctx.font = 'bold 11px Space Grotesk, monospace'
         const textWidth = ctx.measureText(name).width
         const badgeW = textWidth + 18
@@ -704,32 +677,37 @@ export default function Page() {
         ctx.fillStyle = '#000000'
         ctx.textAlign = 'left'
         ctx.fillText(name, badgeX + 14, badgeY + 13)
-
         ctx.restore()
       }
 
-      // Draw Remote Active Players
+      // Draw Remote Players (Only visible if within sight or not hidden, unless within 20m ambush zone)
       players.forEach(p => {
         if (p.id === myId) return
-        if (p.lives <= 0 || p.status === 'OUT') return // Don't draw eliminated players
+        if (p.lives <= 0 || p.status === 'OUT') return
+
         const screenX = px + (p.x - g.x)
         if (screenX < -120 || screenX > w + 120) return
         const screenY = h * 0.76 - (p.y || 0)
+
+        // 20m proximity detection (~160px)
+        const isNear = Math.abs(p.x - g.x) < 160
+
         drawVectorRunner(
           screenX,
           screenY,
           p.color,
           p.name,
-          p.weapon,
-          p.hidden,
+          p.hidden && !isNear, // Revealed if within 20m combat proximity
           false,
           p.attack > 0,
           p.x,
-          (p.y || 0) > 0
+          (p.y || 0) > 0,
+          p.facing ?? 1,
+          false
         )
       })
 
-      // Draw Local Player (if alive)
+      // Draw Local Player
       const localPlayer = players.find(p => p.id === myId)
       const myColor = localPlayer ? localPlayer.color : COLORS[0]
       const myName = localPlayer ? `${localPlayer.name} (YOU)` : 'YOU'
@@ -745,37 +723,96 @@ export default function Page() {
           base,
           myColor,
           myName,
-          g.weapon,
           g.hidden,
           false,
           g.attack > 0,
           g.x,
-          g.y > 0
+          g.y > 0,
+          g.facing,
+          true
         )
       }
 
-      // --- VECTOR HAZARDS ---
+      // --- DRAW VISIBLE BULLETS (Laser Projectiles) ---
+      g.bullets.forEach(b => {
+        if (!b.active) return
+        const bulletScreenX = px + (b.x - g.x)
+        if (bulletScreenX < -50 || bulletScreenX > w + 50) return
+
+        ctx.save()
+        // Glowing Laser Bullet Capsule
+        ctx.fillStyle = '#ffd600'
+        ctx.strokeStyle = '#000000'
+        ctx.lineWidth = 1.5
+
+        ctx.beginPath()
+        ctx.roundRect(bulletScreenX - 7, b.y - 3, 16, 6, 3)
+        ctx.fill()
+        ctx.stroke()
+
+        // Bullet Energy Trail
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(bulletScreenX - (b.vx > 0 ? 12 : -4), b.y - 1.5, 8, 3)
+        ctx.restore()
+      })
+
+      // --- DRAW OBSTACLES ---
       g.hazards.forEach(o => {
         const x = px + o.x - g.x
         if (x < -100 || x > w + 100) return
-        const y = h * 0.76 - (o.lane ? 66 : 0)
+        const y = h * 0.76 - (o.lane ? 60 : 0)
 
         ctx.save()
-        if (o.type === 'cactus') {
-          // Sharp Large Cactus
+        if (o.type === 'thorns') {
+          // Sharp Ground Thorns / Spikes (Jump over)
+          ctx.fillStyle = '#991b1b'
+          ctx.strokeStyle = '#000000'
+          ctx.lineWidth = 2
+          ctx.beginPath()
+          // Multiple sharp thorns sticking up from the ground
+          ctx.moveTo(x, y)
+          ctx.lineTo(x + 8, y - 24)
+          ctx.lineTo(x + 16, y)
+          ctx.lineTo(x + 24, y - 28)
+          ctx.lineTo(x + 32, y)
+          ctx.lineTo(x + 40, y - 22)
+          ctx.lineTo(x + 48, y)
+          ctx.closePath()
+          ctx.fill()
+          ctx.stroke()
+        } else if (o.type === 'bird') {
+          // Airborne Flying Bird (Jump over or duck/prone under)
+          ctx.fillStyle = '#ef4444'
+          ctx.strokeStyle = '#000000'
+          ctx.lineWidth = 2
+          ctx.beginPath()
+          ctx.arc(x + 14, y - 16, 11, 0, Math.PI * 2)
+          ctx.fill()
+          ctx.stroke()
+          // Flapping Wings
+          ctx.beginPath()
+          ctx.moveTo(x + 4, y - 16)
+          ctx.lineTo(x - 8, y - 30)
+          ctx.lineTo(x + 10, y - 22)
+          ctx.lineTo(x + 26, y - 30)
+          ctx.lineTo(x + 18, y - 16)
+          ctx.fill()
+          ctx.stroke()
+        } else if (o.type === 'cactus') {
+          // Large Cactus (Jump over)
           ctx.fillStyle = '#00c853'
           ctx.strokeStyle = '#000000'
           ctx.lineWidth = 2.5
           ctx.beginPath()
-          ctx.roundRect(x + 10, y - 48, 16, 48, 6) // Main stem
-          ctx.roundRect(x - 4, y - 36, 14, 12, 4) // Left arm
+          ctx.roundRect(x + 10, y - 48, 16, 48, 6)
+          ctx.roundRect(x - 4, y - 36, 14, 12, 4)
           ctx.roundRect(x - 4, y - 36, 8, 20, 4)
-          ctx.roundRect(x + 24, y - 40, 14, 12, 4) // Right arm
+          ctx.roundRect(x + 24, y - 40, 14, 12, 4)
           ctx.roundRect(x + 30, y - 40, 8, 22, 4)
           ctx.fill()
           ctx.stroke()
         } else if (o.type === 'rock') {
-          // Faceted Boulder
+          // Boulder (Jump over)
           ctx.fillStyle = '#64748b'
           ctx.strokeStyle = '#000000'
           ctx.lineWidth = 2.5
@@ -788,19 +825,8 @@ export default function Page() {
           ctx.closePath()
           ctx.fill()
           ctx.stroke()
-        } else if (o.type === 'bush') {
-          // Lush Vector Bush
-          ctx.fillStyle = '#00c853'
-          ctx.strokeStyle = '#000000'
-          ctx.lineWidth = 2.5
-          ctx.beginPath()
-          ctx.arc(x + 10, y - 18, 16, 0, Math.PI * 2)
-          ctx.arc(x + 26, y - 24, 18, 0, Math.PI * 2)
-          ctx.arc(x + 42, y - 18, 16, 0, Math.PI * 2)
-          ctx.fill()
-          ctx.stroke()
         } else if (o.type === 'box') {
-          // Wooden Crate
+          // Wooden Box Cover (Hide and Ambush)
           ctx.fillStyle = '#b45309'
           ctx.strokeStyle = '#000000'
           ctx.lineWidth = 2.5
@@ -812,78 +838,22 @@ export default function Page() {
           ctx.moveTo(x, y - 36)
           ctx.lineTo(x + 36, y)
           ctx.stroke()
-        } else if (o.type === 'bird') {
-          // Flying Cyber Bird
-          ctx.fillStyle = '#ff3b30'
-          ctx.strokeStyle = '#000000'
-          ctx.lineWidth = 2
-          ctx.beginPath()
-          ctx.arc(x + 14, y - 16, 10, 0, Math.PI * 2)
-          ctx.fill()
-          ctx.stroke()
-          // Wings
-          ctx.beginPath()
-          ctx.moveTo(x + 4, y - 16)
-          ctx.lineTo(x - 8, y - 28)
-          ctx.lineTo(x + 10, y - 20)
-          ctx.lineTo(x + 24, y - 28)
-          ctx.lineTo(x + 18, y - 16)
-          ctx.fill()
-          ctx.stroke()
-        } else if (o.type === 'wolf') {
-          // Cyber Wolf
-          ctx.fillStyle = '#8b5cf6'
+        } else if (o.type === 'bush') {
+          // Bush Cover (Hide and Ambush)
+          ctx.fillStyle = '#00c853'
           ctx.strokeStyle = '#000000'
           ctx.lineWidth = 2.5
           ctx.beginPath()
-          ctx.roundRect(x, y - 26, 44, 26, 8)
+          ctx.arc(x + 10, y - 18, 16, 0, Math.PI * 2)
+          ctx.arc(x + 26, y - 24, 18, 0, Math.PI * 2)
+          ctx.arc(x + 42, y - 18, 16, 0, Math.PI * 2)
           ctx.fill()
           ctx.stroke()
-          // Glowing Eyes
-          ctx.fillStyle = '#ffd600'
-          ctx.fillRect(x + 34, y - 20, 6, 4)
         }
         ctx.restore()
       })
 
-      // --- VECTOR WEAPON PICKUPS ---
-      g.pickups.forEach(p => {
-        const x = px + p.x - g.x
-        if (x > -80 && x < w + 80 && !p.picked) {
-          ctx.save()
-          // Golden Crate Platform
-          ctx.fillStyle = '#ffd600'
-          ctx.strokeStyle = '#000000'
-          ctx.lineWidth = 2.5
-          ctx.beginPath()
-          ctx.roundRect(x - 6, h * 0.76 - 16, 38, 16, 4)
-          ctx.fill()
-          ctx.stroke()
-
-          // Floating Weapon Icon
-          if (p.weapon === 'blade') {
-            ctx.fillStyle = '#ffffff'
-            ctx.strokeStyle = '#000000'
-            ctx.lineWidth = 2
-            ctx.beginPath()
-            ctx.moveTo(x + 2, h * 0.76 - 38)
-            ctx.lineTo(x + 24, h * 0.76 - 22)
-            ctx.lineTo(x + 20, h * 0.76 - 20)
-            ctx.closePath()
-            ctx.fill()
-            ctx.stroke()
-          } else {
-            ctx.fillStyle = '#ffd600'
-            ctx.strokeStyle = '#000000'
-            ctx.lineWidth = 2
-            ctx.fillRect(x + 6, h * 0.76 - 36, 12, 18)
-            ctx.strokeRect(x + 6, h * 0.76 - 36, 12, 18)
-          }
-          ctx.restore()
-        }
-      })
-
-      // --- FINISH SIGNAL FLARE ---
+      // Finish Signal Flare (at 8200m)
       const finishX = px + 8200 - g.x
       if (finishX > -120 && finishX < w + 240) {
         ctx.save()
@@ -903,16 +873,16 @@ export default function Page() {
         ctx.restore()
       }
 
-      // HUD Track Label
+      // HUD Label
       ctx.fillStyle = '#ffd600'
       ctx.font = '800 11px JetBrains Mono, monospace'
       ctx.textAlign = 'left'
-      ctx.fillText(`SECTOR 01 // ${players.filter(p => p.status === 'RUNNING').length} ACTIVE RUNNERS`, 20, 28)
+      ctx.fillText(`SECTOR 01 // ${players.filter(p => p.status === 'RUNNING').length} RUNNERS LIVE`, 20, 28)
     },
     [players, myId]
   )
 
-  // Simulation Loop
+  // Main Game Loop & Bullet Collision Processing
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -935,6 +905,7 @@ export default function Page() {
       lastRef.current = now
 
       if (g.running && g.lives > 0) {
+        // Player movement
         g.x = Math.max(0, g.x + g.vx * dt)
         g.y += g.vy * dt
         g.vy -= 1600 * dt
@@ -950,52 +921,145 @@ export default function Page() {
         g.flash -= dt
         g.attack -= dt
 
-        // Pickups
-        g.pickups.forEach(p => {
-          if (!p.picked && Math.abs(p.x - g.x) < 55) {
-            p.picked = true
-            g.weapon = p.weapon
-            g.message = `${p.weapon.toUpperCase()} EQUIPPED`
-            const socket = socketRef.current
-            if (socket) {
-              socket.emit('pickup-collected', {
-                pickupId: p.id,
-                x: p.x,
-                weapon: p.weapon,
-              })
+        // --- BULLETS SIMULATION ---
+        g.bullets.forEach(b => {
+          if (!b.active) return
+          b.x += b.vx * dt
+          b.distance += Math.abs(b.vx * dt)
+
+          // Deactivate bullet if out of range
+          if (b.distance > 1100) {
+            b.active = false
+            return
+          }
+
+          // Check hit against local player (if bullet was fired by an opponent)
+          if (b.shooterId !== myId && g.invincible <= 0) {
+            const hitRadius = 36
+            const playerY = 400 * 0.76 - g.y - 20
+            const dx = Math.abs(b.x - g.x)
+            const dy = Math.abs(b.y - playerY)
+
+            if (dx < hitRadius && dy < hitRadius) {
+              b.active = false
+              g.bulletHits += 1
+              g.flash = 0.3
+
+              // 2 shots = 1 life reduction!
+              if (g.bulletHits % 2 === 0) {
+                g.lives = Math.max(0, g.lives - 1)
+                g.x = Math.max(0, g.x - 40)
+                g.invincible = 1.0
+                g.message = `Shot twice! Lost 1 life! (${g.lives} lives remaining)`
+
+                if (g.lives <= 0) {
+                  g.running = false
+                  setPhase('eliminated')
+                  const socket = socketRef.current
+                  if (socket) {
+                    socket.emit('player-update', {
+                      x: g.x,
+                      y: g.y,
+                      vx: g.vx,
+                      vy: g.vy,
+                      facing: g.facing,
+                      lives: 0,
+                      status: 'OUT',
+                      progress: Math.min(100, Math.round(g.x / 82)),
+                    })
+                  }
+                  return
+                }
+              } else {
+                g.message = `Hit by bullet! (1 of 2 shots taken)`
+              }
             }
           }
         })
 
-        // Hazards
+        // Clean inactive bullets
+        g.bullets = g.bullets.filter(b => b.active)
+
+        // --- HAZARD COLLISION ---
         g.hazards.forEach(o => {
           const gap = o.x - g.x
-          const dangerous = o.type !== 'bush' && o.type !== 'box' && gap > 0 && gap < 65 && Math.abs(g.y - (o.lane ? 66 : 0)) < 50
-          if (dangerous && !o.hit && g.invincible <= 0 && !(g.hidden && o.type === 'wolf')) {
-            o.hit = true
-            g.lives = Math.max(0, g.lives - 1)
-            g.x = Math.max(0, g.x - 50)
-            g.invincible = 1.2
-            g.flash = 0.25
-            g.hidden = false
-            g.attack = 0
+          // Thorns on ground: Jump to avoid
+          if (o.type === 'thorns') {
+            if (gap > 0 && gap < 55 && g.y < 35 && !o.hit && g.invincible <= 0) {
+              o.hit = true
+              g.lives = Math.max(0, g.lives - 1)
+              g.x = Math.max(0, g.x - 45)
+              g.invincible = 1.2
+              g.flash = 0.3
+              g.message = `Hit sharp thorns! Jump to clear ground thorns! (${g.lives} lives left)`
 
-            if (g.lives <= 0) {
-              // ALL LIVES OVER: Stop and wait in lobby
-              g.running = false
-              setPhase('eliminated')
-              const socket = socketRef.current
-              if (socket) {
-                socket.emit('player-update', {
-                  x: g.x,
-                  y: g.y,
-                  lives: 0,
-                  status: 'OUT',
-                  progress: Math.min(100, Math.round(g.x / 82)),
-                })
+              if (g.lives <= 0) {
+                g.running = false
+                setPhase('eliminated')
+                const socket = socketRef.current
+                if (socket) {
+                  socket.emit('player-update', {
+                    x: g.x,
+                    y: g.y,
+                    lives: 0,
+                    status: 'OUT',
+                    progress: Math.min(100, Math.round(g.x / 82)),
+                  })
+                }
               }
-            } else {
-              g.message = `Hit by ${o.type.toUpperCase()}! (-50m, ${g.lives} lives left)`
+            }
+          } else if (o.type === 'bird') {
+            // Airborne Bird: Jump high or duck/prone/hide to clear
+            const birdHeight = 60
+            const dangerous = gap > 0 && gap < 55 && Math.abs(g.y - birdHeight) < 40 && !g.hidden
+            if (dangerous && !o.hit && g.invincible <= 0) {
+              o.hit = true
+              g.lives = Math.max(0, g.lives - 1)
+              g.x = Math.max(0, g.x - 45)
+              g.invincible = 1.2
+              g.flash = 0.3
+              g.message = `Hit by cyber bird! Duck/hide or jump over! (${g.lives} lives left)`
+
+              if (g.lives <= 0) {
+                g.running = false
+                setPhase('eliminated')
+                const socket = socketRef.current
+                if (socket) {
+                  socket.emit('player-update', {
+                    x: g.x,
+                    y: g.y,
+                    lives: 0,
+                    status: 'OUT',
+                    progress: Math.min(100, Math.round(g.x / 82)),
+                  })
+                }
+              }
+            }
+          } else if (o.type === 'cactus' || o.type === 'rock') {
+            // Jump over cacti and rocks
+            const dangerous = gap > 0 && gap < 55 && g.y < 35
+            if (dangerous && !o.hit && g.invincible <= 0) {
+              o.hit = true
+              g.lives = Math.max(0, g.lives - 1)
+              g.x = Math.max(0, g.x - 45)
+              g.invincible = 1.2
+              g.flash = 0.3
+              g.message = `Hit ${o.type}! Jump to clear! (${g.lives} lives left)`
+
+              if (g.lives <= 0) {
+                g.running = false
+                setPhase('eliminated')
+                const socket = socketRef.current
+                if (socket) {
+                  socket.emit('player-update', {
+                    x: g.x,
+                    y: g.y,
+                    lives: 0,
+                    status: 'OUT',
+                    progress: Math.min(100, Math.round(g.x / 82)),
+                  })
+                }
+              }
             }
           }
         })
@@ -1010,7 +1074,7 @@ export default function Page() {
           g.message = 'Signal flare reached!'
         }
 
-        // Broadcast local position
+        // Broadcast local state at ~30Hz
         if (now - lastEmitRef.current > 33) {
           lastEmitRef.current = now
           const socket = socketRef.current
@@ -1021,6 +1085,7 @@ export default function Page() {
               y: g.y,
               vx: g.vx,
               vy: g.vy,
+              facing: g.facing,
               hidden: g.hidden,
               weapon: g.weapon,
               attack: g.attack,
@@ -1132,7 +1197,7 @@ export default function Page() {
           </h1>
 
           <p className="hero-subtitle">
-            Real-time survival race with real runners, completely synchronized. No profiles, no bots, no pressure, just pure competition.
+            Real-time survival race with real runners, armed with guns. Jump thorns, duck birds, hide in boxes, and shoot rivals to claim the podium.
           </p>
 
           <div className="entry-form-container">
@@ -1169,10 +1234,10 @@ export default function Page() {
           </div>
 
           <div className="footer-bar" style={{ width: '100%', marginTop: 'auto' }}>
-            <div className="footer-item">⚡ 100% REAL CONNECTED RUNNERS</div>
-            <div className="footer-item">🎯 CLEAN START LINE REJOINS</div>
-            <div className="footer-item">⚔️ LIVE AMBUSH COMBAT</div>
-            <div className="footer-item">🛡️ ZERO BOTS OR GHOST PLAYERS</div>
+            <div className="footer-item">🔫 2 SHOTS = 1 LIFE DAMAGE</div>
+            <div className="footer-item">📦 HIDE IN BOXES & BUSHES</div>
+            <div className="footer-item">🦅 JUMP THORNS & DUCK BIRDS</div>
+            <div className="footer-item">⚡ 100% LIVE MULTIPLAYER</div>
           </div>
         </section>
       )}
@@ -1261,53 +1326,100 @@ export default function Page() {
         </section>
       )}
 
-      {/* ================= PHASE 3: Live Race ================= */}
+      {/* ================= PHASE 3: Live Race with Screen HUD Life Display ================= */}
       {phase === 'race' && (
         <section className="game-layout">
           <div>
-            <div className="race-header">
-              <div>
-                <span className="badge-pill" style={{ padding: '4px 10px', fontSize: '10px', marginBottom: 6 }}>
-                  ROOM {roomCode} // LIVE MATCH
-                </span>
-                <h1>{g.message}</h1>
+            {/* Top In-Game Screen HUD with Visible Lives Bar */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: 12,
+                padding: '14px 18px',
+                background: '#ffffff',
+                border: '3px solid #000000',
+                boxShadow: '5px 5px 0px #000000',
+                marginBottom: 14,
+              }}
+            >
+              {/* LIVES DISPLAY DIRECTLY ON SCREEN */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <div style={{ fontFamily: 'JetBrains Mono', fontWeight: 900, fontSize: '13px', textTransform: 'uppercase' }}>
+                  LIVES:
+                </div>
+                <div style={{ display: 'flex', gap: 4, fontSize: '20px', color: '#ff3b30' }}>
+                  {[...Array(5)].map((_, i) => (
+                    <span key={i} style={{ color: i < g.lives ? '#ff3b30' : '#cbd5e1' }}>
+                      {i < g.lives ? '♥' : '♡'}
+                    </span>
+                  ))}
+                </div>
+
+                {/* HIT SHIELD INDICATOR (2 Shots = 1 Life) */}
+                <div
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '4px 8px',
+                    background: g.bulletHits % 2 === 1 ? '#fffae0' : '#f1f5f9',
+                    border: '1.5px solid #000000',
+                    fontFamily: 'JetBrains Mono',
+                    fontSize: '10px',
+                    fontWeight: 800,
+                  }}
+                >
+                  <span>SHIELD:</span>
+                  <span style={{ color: g.bulletHits % 2 === 1 ? '#ff3b30' : '#00c853' }}>
+                    {g.bulletHits % 2 === 1 ? '1/2 SHOTS' : '2/2 FULL'}
+                  </span>
+                </div>
               </div>
 
-              <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
-                <button className="neo-button" onClick={leaveRoom} style={{ padding: '8px 12px', fontSize: '10px' }}>
-                  ← EXIT RUN
-                </button>
+              {/* ACTION MESSAGE & DISTANCE */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                <div style={{ fontWeight: 800, fontSize: '13px', color: '#000000' }}>
+                  {g.message}
+                </div>
                 <div className="progress-badge">
                   <span>PROGRESS</span>
                   <strong>{Math.min(100, Math.round(g.x / 82))}%</strong>
                 </div>
+                <button className="neo-button" onClick={leaveRoom} style={{ padding: '6px 10px', fontSize: '10px' }}>
+                  ← EXIT
+                </button>
               </div>
             </div>
 
+            {/* Game Canvas Frame */}
             <div className="canvas-frame">
               <canvas ref={canvasRef} aria-label="Pixel Pursuit race track" />
             </div>
 
+            {/* Controls Bar */}
             <div className="controls-row">
               <div className="key-pill">
                 <kbd>A/D</kbd>
-                <span>MOVE</span>
+                <span>TURN & MOVE</span>
               </div>
               <div className="key-pill">
                 <kbd>SHIFT</kbd>
                 <span>SPRINT</span>
               </div>
               <div className="key-pill">
-                <kbd>SPACE</kbd>
+                <kbd>SPACE/W</kbd>
                 <span>JUMP</span>
               </div>
               <div className="key-pill">
-                <kbd>S</kbd>
-                <span>HIDE</span>
+                <kbd>S/DOWN</kbd>
+                <span>HIDE IN BOX/BUSH</span>
               </div>
-              <div className="key-pill">
-                <kbd>F</kbd>
-                <span>ATTACK</span>
+              <div className="key-pill" style={{ background: '#ffd600' }}>
+                <kbd>F/E</kbd>
+                <span>🔫 FIRE GUN</span>
               </div>
 
               <div className="hide-bar-container">
@@ -1321,6 +1433,7 @@ export default function Page() {
               </div>
             </div>
 
+            {/* Mobile Touch Action Controls */}
             <div className="mobile-actions">
               <button className="mobile-btn" onPointerDown={touch(() => move(-1))} onPointerUp={touch(stopMove)}>
                 ← BACK
@@ -1331,14 +1444,14 @@ export default function Page() {
               <button className="mobile-btn" onPointerDown={touch(() => move(1, true))} onPointerUp={touch(stopMove)}>
                 SPRINT
               </button>
-              <button className="mobile-btn mobile-btn-yellow" onPointerDown={touch(jump)}>
+              <button className="mobile-btn" onPointerDown={touch(jump)}>
                 JUMP
               </button>
               <button className="mobile-btn" onPointerDown={touch(hide)}>
-                HIDE
+                HIDE (BOX/BUSH)
               </button>
-              <button className="mobile-btn mobile-btn-yellow" onPointerDown={touch(attack)}>
-                ATTACK
+              <button className="mobile-btn mobile-btn-yellow" onPointerDown={touch(shootGun)}>
+                🔫 FIRE GUN
               </button>
             </div>
           </div>
@@ -1346,7 +1459,7 @@ export default function Page() {
           <aside className="neo-card" style={{ height: 'fit-content' }}>
             <div className="card-header-line">
               <span>LIVE STANDINGS</span>
-              <span>TOP 3 PODIUM</span>
+              <span>PODIUM RUN</span>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1363,10 +1476,10 @@ export default function Page() {
                       {p.name} {p.id === myId && '(YOU)'}
                     </div>
                     <div style={{ fontFamily: 'JetBrains Mono', fontSize: '9px', color: 'var(--muted)' }}>
-                      {p.status} · {p.weapon ? p.weapon.toUpperCase() : 'UNARMED'}
+                      {p.status} · {p.progress}%
                     </div>
                   </div>
-                  <div style={{ color: 'var(--red)', fontSize: '12px', letterSpacing: '1px' }}>
+                  <div style={{ color: 'var(--red)', fontSize: '13px', letterSpacing: '1px' }}>
                     {p.lives > 0 ? '♥'.repeat(clamp(p.lives ?? 5, 0, 5)) : <span style={{ color: '#000', fontSize: '10px', fontWeight: 800 }}>OUT</span>}
                   </div>
                 </div>
@@ -1375,21 +1488,23 @@ export default function Page() {
 
             <div style={{ marginTop: 24, paddingTop: 16, borderTop: '2px solid #000' }}>
               <div style={{ fontFamily: 'JetBrains Mono', fontSize: '10px', fontWeight: 800, textTransform: 'uppercase', marginBottom: 8 }}>
-                TACTICAL INTEL
+                TACTICAL GUIDE
               </div>
               <p style={{ color: 'var(--muted)', fontSize: '11px', lineHeight: 1.6, margin: 0 }}>
-                • Cover in bushes hides you from rival sight & ambush hits.
+                • <strong>GUN COMBAT</strong>: 2 bullet hits take 1 life of the target!
                 <br />
-                • Bats & Blades deal melee pushback.
+                • <strong>TURNING</strong>: Face turns with your movement direction.
                 <br />
-                • Losing all 5 lives knocks you out to the lobby.
+                • <strong>BOX & BUSH COVER</strong>: Hide in crates or bushes. Detected within 20m proximity!
+                <br />
+                • <strong>OBSTACLES</strong>: Jump ground thorns/cacti; duck/jump flying birds.
               </p>
             </div>
           </aside>
         </section>
       )}
 
-      {/* ================= PHASE 4: Eliminated (Waiting in Lobby) ================= */}
+      {/* ================= PHASE 4: Eliminated Screen (Wait in Lobby) ================= */}
       {phase === 'eliminated' && (
         <div className="neo-modal-overlay">
           <div className="neo-modal-card" style={{ maxWidth: 520, textAlign: 'center' }}>
@@ -1485,7 +1600,7 @@ export default function Page() {
         <div className="neo-modal-overlay" onClick={() => setShowRules(false)}>
           <div className="neo-modal-card" onClick={e => e.stopPropagation()}>
             <div className="card-header-line">
-              <span>FIELD MANUAL // COMBAT SURVIVAL</span>
+              <span>FIELD MANUAL // GUNS & SURVIVAL</span>
               <button
                 onClick={() => setShowRules(false)}
                 style={{ background: 'none', border: 'none', fontWeight: 900, fontSize: 18 }}
@@ -1495,7 +1610,7 @@ export default function Page() {
             </div>
 
             <h2 style={{ fontSize: '32px', fontWeight: 900, margin: '0 0 10px' }}>
-              RUN. FIGHT. <span className="badge-highlight">SURVIVE.</span>
+              RUN. SHOOT. <span className="badge-highlight">SURVIVE.</span>
             </h2>
             <p style={{ color: 'var(--muted)', fontSize: '14px', margin: '0 0 24px' }}>
               Sprint 8200m across hostile terrain with other live runners. First 3 across the signal flare claim the podium.
@@ -1503,32 +1618,32 @@ export default function Page() {
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 18, marginBottom: 28 }}>
               <div className="neo-card" style={{ padding: 18 }}>
-                <strong style={{ fontSize: 13, textTransform: 'uppercase' }}>1. MOVEMENT</strong>
+                <strong style={{ fontSize: 13, textTransform: 'uppercase' }}>1. MOVEMENT & FACING</strong>
                 <p style={{ color: 'var(--muted)', fontSize: 11, lineHeight: 1.6, marginTop: 8 }}>
-                  <kbd>A/D</kbd> or Arrows move. Hold <kbd>SHIFT</kbd> to sprint. <kbd>SPACE</kbd>/<kbd>W</kbd> jumps.
+                  <kbd>A/D</kbd> moves and turns your character's face left/right. Hold <kbd>SHIFT</kbd> to sprint.
                 </p>
                 <p style={{ color: 'var(--muted)', fontSize: 11, lineHeight: 1.6 }}>
-                  <kbd>S</kbd>/<kbd>DOWN</kbd> hides in bushes and protects from ambushes.
+                  <kbd>SPACE</kbd>/<kbd>W</kbd> jumps over thorns, cacti, and rocks.
                 </p>
               </div>
 
               <div className="neo-card" style={{ padding: 18 }}>
-                <strong style={{ fontSize: 13, textTransform: 'uppercase' }}>2. COMBAT</strong>
+                <strong style={{ fontSize: 13, textTransform: 'uppercase' }}>2. GUN COMBAT</strong>
                 <p style={{ color: 'var(--muted)', fontSize: 11, lineHeight: 1.6, marginTop: 8 }}>
-                  Walk over a bat or blade to equip it. Press <kbd>F</kbd> or <kbd>E</kbd> to swing.
+                  Press <kbd>F</kbd> or <kbd>E</kbd> (or tap FIRE) to shoot visible bullets.
                 </p>
                 <p style={{ color: 'var(--muted)', fontSize: 11, lineHeight: 1.6 }}>
-                  Ambush strikes from bushes deal direct damage and push competitors back 45m.
+                  <strong>2 bullet hits</strong> reduce 1 life of the opponent!
                 </p>
               </div>
 
               <div className="neo-card" style={{ padding: 18 }}>
-                <strong style={{ fontSize: 13, textTransform: 'uppercase' }}>3. SURVIVE</strong>
+                <strong style={{ fontSize: 13, textTransform: 'uppercase' }}>3. BOXES, BUSHES & THORNS</strong>
                 <p style={{ color: 'var(--muted)', fontSize: 11, lineHeight: 1.6, marginTop: 8 }}>
-                  Cacti, rocks, birds, and wolves cost 1 life and push you back 50m.
+                  Press <kbd>S</kbd> to hide inside boxes & bushes. Detected within 20m ambush proximity.
                 </p>
                 <p style={{ color: 'var(--muted)', fontSize: 11, lineHeight: 1.6 }}>
-                  Losing all 5 lives knocks you out to the lobby until the next round.
+                  Jump ground thorns; duck or jump over flying birds. 0 lives knocks you out to the lobby.
                 </p>
               </div>
             </div>
