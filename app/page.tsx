@@ -148,7 +148,10 @@ export default function Page() {
   // Socket Connection Lifecycle
   useEffect(() => {
     const socket = io({
-      transports: ['websocket', 'polling'],
+      transports: ['polling', 'websocket'], // Polling first guarantees instant connection on cloud hosts
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
       autoConnect: true,
     })
     socketRef.current = socket
@@ -156,6 +159,10 @@ export default function Page() {
     socket.on('connect', () => {
       setConnected(true)
       setErrorMessage(null)
+    })
+
+    socket.on('connect_error', () => {
+      setConnected(false)
     })
 
     socket.on('disconnect', () => {
@@ -292,37 +299,48 @@ export default function Page() {
     }
   }, [myId])
 
-  // Join Room
+  // Join Room Action (with Auto-Connect resilience)
   const joinRoom = useCallback(() => {
     const socket = socketRef.current
-    if (!socket || !connected) {
-      setErrorMessage('Connecting to server... please wait a moment.')
-      return
-    }
+    if (!socket) return
 
     const cleanRoom = roomCode.trim().toUpperCase().slice(0, 8) || 'PX7K2'
     setRoomCode(cleanRoom)
     setIsJoining(true)
     setErrorMessage(null)
 
-    socket.emit(
-      'join-room',
-      { roomId: cleanRoom, name: playerName.trim() || undefined },
-      (res: { success: boolean; code?: string; message?: string; player?: Player; room?: { id: string; status: 'lobby' | 'in-progress' | 'results'; players: Player[] } }) => {
-        setIsJoining(false)
-        if (res && res.success && res.player && res.room) {
-          setMyId(res.player.id)
-          setPlayers(res.room.players || [res.player])
-          setInRoom(true)
-          setPhase('lobby')
-          setErrorMessage(null)
-          gameRef.current = initialGame()
-        } else {
-          setErrorMessage(res?.message || 'Could not join room.')
+    const executeJoin = () => {
+      socket.emit(
+        'join-room',
+        { roomId: cleanRoom, name: playerName.trim() || undefined },
+        (res: { success: boolean; code?: string; message?: string; player?: Player; room?: { id: string; status: 'lobby' | 'in-progress' | 'results'; players: Player[] } }) => {
+          setIsJoining(false)
+          if (res && res.success && res.player && res.room) {
+            setMyId(res.player.id)
+            setPlayers(res.room.players || [res.player])
+            setInRoom(true)
+            setPhase('lobby')
+            setErrorMessage(null)
+            gameRef.current = initialGame()
+          } else {
+            setErrorMessage(res?.message || 'Could not join room.')
+          }
         }
-      }
-    )
-  }, [connected, roomCode, playerName])
+      )
+    }
+
+    if (!socket.connected) {
+      setErrorMessage('Connecting to game server... please wait a few seconds.')
+      socket.connect()
+      socket.once('connect', () => {
+        setConnected(true)
+        setErrorMessage(null)
+        executeJoin()
+      })
+    } else {
+      executeJoin()
+    }
+  }, [roomCode, playerName])
 
   // Leave Room Action
   const leaveRoom = useCallback(() => {
